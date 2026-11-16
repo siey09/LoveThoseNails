@@ -1,0 +1,444 @@
+import { CheckCircle2, Loader2, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useStudio } from '../context/StudioContext';
+import { STUDIO_TIME_SLOTS } from '../data/seedCatalog';
+import { BOOTSTRAP_ADMIN_EMAIL } from '../lib/firebase';
+import type {
+  Appointment,
+  ArtistItem,
+  LookbookPreset,
+  NailShape,
+  ServiceItem,
+} from '../types/studio';
+
+export interface BookingModalInitialState {
+  service?: ServiceItem;
+  artist?: ArtistItem;
+  lookbook?: LookbookPreset;
+  date?: string;
+  timeSlot?: string;
+}
+
+interface BookingModalProps {
+  isOpen: boolean;
+  initial?: BookingModalInitialState;
+  onClose: () => void;
+  onViewBookings: () => void;
+}
+
+function getDefaultDateIso(): string {
+  const base = new Date();
+  if (base.getDay() === 1) {
+    base.setDate(base.getDate() + 1);
+  }
+  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(
+    base.getDate(),
+  ).padStart(2, '0')}`;
+}
+
+export function BookingModal({
+  isOpen,
+  initial,
+  onClose,
+  onViewBookings,
+}: BookingModalProps) {
+  const {
+    user,
+    profile,
+    services,
+    artists,
+    bookedSlots,
+    catalogSynced,
+    isAdmin,
+    signInWithGoogle,
+    createAppointment,
+  } = useStudio();
+
+  const activeServices = useMemo(() => services.filter((s) => s.active), [services]);
+  const activeArtists = useMemo(() => artists.filter((a) => a.active), [artists]);
+
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('');
+  const [clientName, setClientName] = useState<string>('');
+  const [clientPhone, setClientPhone] = useState<string>('');
+  const [notes, setNotes] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [confirmedAppt, setConfirmedAppt] = useState<Appointment | null>(null);
+
+  const selectedService = initial?.service || activeServices[0];
+  const selectedArtist = initial?.artist || activeArtists[0];
+  const nailShape: NailShape = initial?.lookbook?.shape || profile?.preferredShape || 'Almond';
+  const shadePreference = initial?.lookbook
+    ? `${initial.lookbook.shadeName} (${initial.lookbook.finish})`
+    : profile?.preferredShade || 'Dusty Rose';
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setErrorMsg('');
+    setConfirmedAppt(null);
+    setSelectedDate(initial?.date || getDefaultDateIso());
+    setSelectedTimeSlot(initial?.timeSlot || '');
+    setClientName(profile?.displayName || user?.displayName || '');
+    setClientPhone(profile?.phone || '');
+    setNotes(profile?.allergiesOrNotes || '');
+  }, [isOpen, initial, profile, user]);
+
+  if (!isOpen) return null;
+
+  const hasLockedDateTime = Boolean(initial?.date && initial?.timeSlot);
+
+  const takenSlotsForDate = bookedSlots
+    .filter((slot) => slot.status === 'active' && slot.date === selectedDate)
+    .map((slot) => slot.timeSlot);
+
+  const handleConfirmBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedService || !selectedArtist || !selectedDate || !selectedTimeSlot) {
+      setErrorMsg('Please select a date and time slot.');
+      return;
+    }
+    setErrorMsg('');
+    setSubmitting(true);
+
+    try {
+      let currentUser = user;
+      if (!currentUser) {
+        currentUser = await signInWithGoogle();
+      }
+      if (!currentUser) {
+        setErrorMsg('Google sign-in is required to confirm your reservation.');
+        setSubmitting(false);
+        return;
+      }
+
+      const currentIsAdmin = Boolean(
+        currentUser.emailVerified &&
+          (currentUser.email === BOOTSTRAP_ADMIN_EMAIL || isAdmin),
+      );
+
+      if (!catalogSynced && !currentIsAdmin) {
+        setErrorMsg(
+          'The studio catalog is awaiting initial publication by the studio owner. Please ask the studio admin to sign in once to publish live slots.',
+        );
+        setSubmitting(false);
+        return;
+      }
+
+      const appt = await createAppointment({
+        service: selectedService,
+        artist: selectedArtist,
+        date: selectedDate,
+        timeSlot: selectedTimeSlot,
+        nailShape,
+        shadePreference,
+        addons: [],
+        clientName: clientName || currentUser.displayName || 'Studio Guest',
+        clientPhone: clientPhone || '000-000-0000',
+        notes,
+      });
+
+      setConfirmedAppt(appt);
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'Could not complete booking. Please try again.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-[#141212]/40 backdrop-blur-[2px] flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Reserve Studio Appointment"
+    >
+      <div className="neu-surface w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Modal Header */}
+        <div className="px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-[#554C4B]">
+              Love Those Nails by Eshin
+            </p>
+            <h2 className="font-['Playfair_Display'] text-2xl font-semibold text-[#141212]">
+              {confirmedAppt
+                ? confirmedAppt.status === 'pending'
+                  ? 'Pending Admin Confirmation'
+                  : 'Appointment Confirmed'
+                : 'Reserve Appointment'}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close booking dialog"
+            className="p-2.5 neu-btn text-[#141212] cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-6">
+          <div className="neu-divider" />
+        </div>
+
+        {/* Modal Body */}
+        {confirmedAppt ? (
+          <div className="p-5 sm:p-6 space-y-5 sm:space-y-6 overflow-y-auto">
+            <div className="neu-inset p-5 sm:p-6 space-y-4">
+              {confirmedAppt.status === 'pending' ? (
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2.5 text-[#B45309]">
+                    <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                    <span className="text-sm font-semibold">
+                      Pending Studio Admin Confirmation
+                    </span>
+                  </div>
+                  <div className="pending-bar-track" aria-hidden="true">
+                    <div className="pending-bar-fill" />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2.5 text-[#16A34A]">
+                  <CheckCircle2 className="w-5 h-5 shrink-0" />
+                  <span className="text-sm font-semibold">Studio Appointment Confirmed</span>
+                </div>
+              )}
+
+              <div className="pb-2">
+                <p className="text-xs text-[#554C4B]">Booking Reference</p>
+                <p className="font-mono text-2xl font-semibold text-[#141212] mt-0.5">
+                  {confirmedAppt.bookingCode}
+                </p>
+              </div>
+
+              <div className="neu-divider" />
+
+              <div className="grid grid-cols-2 gap-4 text-xs">
+                <div>
+                  <p className="text-[#554C4B]">Date</p>
+                  <p className="font-mono tabular-nums font-medium text-[#141212] mt-0.5">
+                    {confirmedAppt.date}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[#554C4B]">Time</p>
+                  <p className="font-mono tabular-nums font-medium text-[#141212] mt-0.5">
+                    {confirmedAppt.timeSlot}
+                  </p>
+                </div>
+              </div>
+
+              <div className="neu-divider" />
+
+              <div className="text-xs text-[#554C4B] leading-relaxed">
+                {confirmedAppt.status === 'pending' ? (
+                  <>
+                    Your request is held while our studio admin reviews it. Once confirmed, a
+                    booking confirmation email will be sent to{' '}
+                    <span className="text-[#141212] font-medium break-all">
+                      {confirmedAppt.clientEmail}
+                    </span>
+                    , followed by day-before and 1-hour reminders.
+                  </>
+                ) : (
+                  <>
+                    A booking confirmation email is being sent to{' '}
+                    <span className="text-[#141212] font-medium break-all">
+                      {confirmedAppt.clientEmail}
+                    </span>
+                    , with automatic reminders scheduled for the day before and 1 hour prior to
+                    your appointment.
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 neu-btn text-xs font-medium text-[#141212] cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onViewBookings();
+                }}
+                className="px-5 py-2.5 neu-btn-ink text-xs font-medium cursor-pointer"
+              >
+                View Booking Status
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleConfirmBooking} className="flex flex-col flex-1 overflow-y-auto">
+            <div className="p-5 sm:p-6 space-y-5 flex-1">
+              {/* Selected Date & Time Display (or quick picker if opened without slot) */}
+              {hasLockedDateTime ? (
+                <div className="neu-inset p-5 grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-[#554C4B]">
+                      Selected Date
+                    </p>
+                    <p className="font-mono tabular-nums text-base font-semibold text-[#141212] mt-1">
+                      {selectedDate}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-[#554C4B]">
+                      Selected Time
+                    </p>
+                    <p className="font-mono tabular-nums text-base font-semibold text-[#141212] mt-1">
+                      {selectedTimeSlot}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="neu-surface-sm p-5 space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-[#141212] mb-1.5">
+                      Date
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      min={new Date().toISOString().slice(0, 10)}
+                      value={selectedDate}
+                      onChange={(e) => {
+                        setSelectedDate(e.target.value);
+                        setSelectedTimeSlot('');
+                      }}
+                      className="w-full px-3.5 py-2.5 neu-input text-sm font-mono text-[#141212]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-[#141212] mb-1.5">
+                      Time Slot
+                    </label>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      {STUDIO_TIME_SLOTS.map((slot) => {
+                        const isTaken = takenSlotsForDate.includes(slot);
+                        const active = selectedTimeSlot === slot;
+                        return (
+                          <button
+                            key={slot}
+                            type="button"
+                            disabled={isTaken}
+                            onClick={() => setSelectedTimeSlot(slot)}
+                            className={`py-2 px-2 text-xs font-mono tabular-nums ${
+                              isTaken
+                                ? 'neu-inset text-[#554C4B]/45 line-through cursor-not-allowed'
+                                : active
+                                  ? 'neu-btn-ink cursor-pointer'
+                                  : 'neu-btn text-[#141212] cursor-pointer'
+                            }`}
+                          >
+                            {slot}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Guest Contact Details */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-[#141212] mb-1.5">
+                    Full Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={100}
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    placeholder="Your name"
+                    className="w-full px-3.5 py-2.5 neu-input text-sm text-[#141212]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-[#141212] mb-1.5">
+                    Mobile Phone
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    minLength={4}
+                    maxLength={32}
+                    value={clientPhone}
+                    onChange={(e) => setClientPhone(e.target.value)}
+                    placeholder="(555) 234-5678"
+                    className="w-full px-3.5 py-2.5 neu-input text-sm font-mono text-[#141212]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-[#141212] mb-1.5">
+                    Notes (Optional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    maxLength={500}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Design request or notes..."
+                    className="w-full px-3.5 py-2.5 neu-input text-sm text-[#141212]"
+                  />
+                </div>
+              </div>
+
+              {!user && (
+                <p className="text-xs text-[#554C4B] neu-inset p-3.5">
+                  You will sign in with Google when confirming so your reservation is saved.
+                </p>
+              )}
+
+              {errorMsg && (
+                <p className="text-xs text-[#DC2626] bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-3">
+                  {errorMsg}
+                </p>
+              )}
+            </div>
+
+            <div className="px-5 sm:px-6 py-4 flex flex-wrap items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 neu-btn text-xs font-medium text-[#141212] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={
+                  submitting ||
+                  !selectedDate ||
+                  !selectedTimeSlot ||
+                  !clientName.trim() ||
+                  clientPhone.trim().length < 4
+                }
+                className="px-5 py-2.5 neu-btn-ink text-xs font-medium disabled:opacity-45 cursor-pointer"
+              >
+                {submitting
+                  ? 'Confirming...'
+                  : user
+                    ? 'Confirm Appointment'
+                    : 'Sign in with Google & Confirm'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}

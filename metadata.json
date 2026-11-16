@@ -1,0 +1,6 @@
+{
+  "name": "Love Those Nails by Eshin",
+  "description": "Luxury nail artistry studio, online appointment booking, client loyalty portal, and salon management system for Love Those Nails by Eshin.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

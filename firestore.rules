@@ -1,0 +1,507 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Reusable Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'sieyiphone07@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // --- Validation Blueprints ---
+    function isValidService(data) {
+      return data.keys().hasAll(['name', 'category', 'description', 'durationMin', 'price', 'featured', 'active', 'sortOrder', 'updatedAt'])
+        && data.keys().hasOnly(['name', 'category', 'description', 'durationMin', 'price', 'featured', 'active', 'sortOrder', 'updatedAt'])
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 100
+        && data.category in ['Gel-X & Extensions', 'BIAB & Builder', 'Signature Nail Art', 'Manicure & Spa', 'Add-Ons & Removal']
+        && data.description is string && data.description.size() >= 5 && data.description.size() <= 400
+        && data.durationMin is number && data.durationMin >= 10 && data.durationMin <= 300
+        && data.price is number && data.price >= 0 && data.price <= 2000
+        && data.featured is bool
+        && data.active is bool
+        && data.sortOrder is number && data.sortOrder >= 0 && data.sortOrder <= 1000
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidArtist(data) {
+      return data.keys().hasAll(['name', 'role', 'specialty', 'bio', 'workDays', 'active', 'accentTone', 'updatedAt'])
+        && data.keys().hasOnly(['name', 'role', 'specialty', 'bio', 'workDays', 'active', 'accentTone', 'updatedAt'])
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 80
+        && data.role is string && data.role.size() >= 2 && data.role.size() <= 80
+        && data.specialty is string && data.specialty.size() >= 2 && data.specialty.size() <= 140
+        && data.bio is string && data.bio.size() >= 10 && data.bio.size() <= 400
+        && data.workDays is list && data.workDays.size() >= 1 && data.workDays.size() <= 7
+        && data.workDays[0] is string
+        && data.active is bool
+        && data.accentTone is string && data.accentTone.size() >= 4 && data.accentTone.size() <= 20
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidRetailProduct(data) {
+      return data.keys().hasAll(['name', 'category', 'description', 'price', 'stock', 'shadeHex', 'active', 'updatedAt'])
+        && data.keys().hasOnly(['name', 'category', 'description', 'price', 'stock', 'shadeHex', 'active', 'updatedAt'])
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 100
+        && data.category in ['Cuticle Care', 'Hand Ritual', 'Tools & Prep', 'Press-On Sets']
+        && data.description is string && data.description.size() >= 5 && data.description.size() <= 350
+        && data.price is number && data.price >= 0 && data.price <= 1000
+        && data.stock is number && data.stock >= 0 && data.stock <= 10000
+        && data.shadeHex is string && data.shadeHex.size() >= 4 && data.shadeHex.size() <= 20
+        && data.active is bool
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'phone', 'preferredShape', 'preferredShade', 'allergiesOrNotes', 'loyaltyPoints', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'email', 'phone', 'preferredShape', 'preferredShade', 'allergiesOrNotes', 'loyaltyPoints', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.phone is string && data.phone.size() <= 32
+        && data.preferredShape in ['Almond', 'Coffin', 'Oval', 'Square', 'Stiletto']
+        && data.preferredShade is string && data.preferredShade.size() <= 60
+        && data.allergiesOrNotes is string && data.allergiesOrNotes.size() <= 400
+        && data.loyaltyPoints is number && data.loyaltyPoints >= 0 && data.loyaltyPoints <= 100000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidBookedSlot(data) {
+      return data.keys().hasAll(['appointmentId', 'artistId', 'date', 'timeSlot', 'durationMin', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['appointmentId', 'artistId', 'date', 'timeSlot', 'durationMin', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.appointmentId)
+        && isValidId(data.artistId)
+        && data.date is string && data.date.size() == 10 && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.timeSlot is string && data.timeSlot.size() >= 4 && data.timeSlot.size() <= 12
+        && data.durationMin is number && data.durationMin >= 10 && data.durationMin <= 300
+        && data.status in ['active', 'cancelled']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidAppointment(data) {
+      return data.keys().hasAll([
+          'bookingCode', 'clientId', 'clientName', 'clientEmail', 'clientPhone',
+          'serviceId', 'serviceName', 'artistId', 'artistName', 'date', 'timeSlot',
+          'durationMin', 'totalPrice', 'nailShape', 'shadePreference', 'addons',
+          'notes', 'status', 'paymentStatus', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'bookingCode', 'clientId', 'clientName', 'clientEmail', 'clientPhone',
+          'serviceId', 'serviceName', 'artistId', 'artistName', 'date', 'timeSlot',
+          'durationMin', 'totalPrice', 'nailShape', 'shadePreference', 'addons',
+          'notes', 'status', 'paymentStatus', 'createdAt', 'updatedAt'
+        ])
+        && data.bookingCode is string && data.bookingCode.size() == 10 && data.bookingCode.matches('^LTN-[A-Z0-9]{6}$')
+        && isValidId(data.clientId)
+        && data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 100
+        && data.clientEmail is string && data.clientEmail.size() >= 3 && data.clientEmail.size() <= 160
+        && data.clientPhone is string && data.clientPhone.size() >= 4 && data.clientPhone.size() <= 32
+        && isValidId(data.serviceId)
+        && data.serviceName is string && data.serviceName.size() >= 2 && data.serviceName.size() <= 120
+        && isValidId(data.artistId)
+        && data.artistName is string && data.artistName.size() >= 2 && data.artistName.size() <= 80
+        && data.date is string && data.date.size() == 10 && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.timeSlot is string && data.timeSlot.size() >= 4 && data.timeSlot.size() <= 12
+        && data.durationMin is number && data.durationMin >= 10 && data.durationMin <= 300
+        && data.totalPrice is number && data.totalPrice >= 0 && data.totalPrice <= 5000
+        && data.nailShape in ['Almond', 'Coffin', 'Oval', 'Square', 'Stiletto']
+        && data.shadePreference is string && data.shadePreference.size() <= 60
+        && data.addons is list && data.addons.size() <= 8
+        && (data.addons.size() == 0 || data.addons[0] is string)
+        && data.notes is string && data.notes.size() <= 500
+        && data.status in ['pending', 'confirmed', 'in_chair', 'completed', 'cancelled']
+        && data.paymentStatus in ['unpaid', 'deposit_paid', 'paid']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidRetailOrder(data) {
+      return data.keys().hasAll(['orderCode', 'clientId', 'clientName', 'itemNames', 'totalAmount', 'pickupDate', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['orderCode', 'clientId', 'clientName', 'itemNames', 'totalAmount', 'pickupDate', 'status', 'createdAt', 'updatedAt'])
+        && data.orderCode is string && data.orderCode.size() == 10 && data.orderCode.matches('^ORD-[A-Z0-9]{6}$')
+        && isValidId(data.clientId)
+        && data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 100
+        && data.itemNames is list && data.itemNames.size() >= 1 && data.itemNames.size() <= 15
+        && data.itemNames[0] is string
+        && data.totalAmount is number && data.totalAmount >= 0 && data.totalAmount <= 10000
+        && data.pickupDate is string && data.pickupDate.size() == 10 && data.pickupDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.status in ['reserved', 'ready', 'picked_up', 'cancelled']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidPosTransaction(data) {
+      return data.keys().hasAll(['txCode', 'appointmentId', 'clientName', 'summary', 'subtotal', 'tip', 'total', 'paymentMethod', 'recordedBy', 'createdAt'])
+        && data.keys().hasOnly(['txCode', 'appointmentId', 'clientName', 'summary', 'subtotal', 'tip', 'total', 'paymentMethod', 'recordedBy', 'createdAt'])
+        && data.txCode is string && data.txCode.size() == 10 && data.txCode.matches('^POS-[A-Z0-9]{6}$')
+        && data.appointmentId is string && data.appointmentId.size() <= 128
+        && data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 100
+        && data.summary is string && data.summary.size() >= 2 && data.summary.size() <= 200
+        && data.subtotal is number && data.subtotal >= 0 && data.subtotal <= 10000
+        && data.tip is number && data.tip >= 0 && data.tip <= 2000
+        && data.total is number && data.total >= 0 && data.total <= 12000
+        && data.paymentMethod in ['Card', 'Cash', 'Apple Pay', 'Gift Card']
+        && isValidId(data.recordedBy)
+        && data.createdAt is timestamp && data.createdAt == request.time;
+    }
+
+    function isValidAdminRecord(data) {
+      return data.keys().hasAll(['uid', 'email', 'grantedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'grantedAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.grantedAt is timestamp && data.grantedAt == request.time;
+    }
+
+    function isValidGalleryPost(data) {
+      return data.keys().hasAll([
+          'title', 'caption', 'imageUrl', 'category', 'nailShape',
+          'shadeName', 'artistName', 'featured', 'authorId', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'title', 'caption', 'imageUrl', 'category', 'nailShape',
+          'shadeName', 'artistName', 'featured', 'authorId', 'createdAt', 'updatedAt'
+        ])
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 100
+        && data.caption is string && data.caption.size() >= 2 && data.caption.size() <= 500
+        && data.imageUrl is string && data.imageUrl.size() >= 10 && data.imageUrl.size() <= 350000
+        && data.category in ['Gel-X & Extensions', 'BIAB & Builder', 'Signature Nail Art', 'Manicure & Spa', 'French & Chrome']
+        && data.nailShape in ['Almond', 'Coffin', 'Oval', 'Square', 'Stiletto']
+        && data.shadeName is string && data.shadeName.size() <= 60
+        && data.artistName is string && data.artistName.size() >= 2 && data.artistName.size() <= 80
+        && data.featured is bool
+        && isValidId(data.authorId)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidLoyaltyCard(data) {
+      return data.keys().hasAll([
+          'uid', 'clientName', 'clientEmail', 'cardCode',
+          'stamps', 'totalVisits', 'rewardsRedeemed', 'rewardNote',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'clientName', 'clientEmail', 'cardCode',
+          'stamps', 'totalVisits', 'rewardsRedeemed', 'rewardNote',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 100
+        && data.clientEmail is string && data.clientEmail.size() >= 3 && data.clientEmail.size() <= 160
+        && data.cardCode is string && data.cardCode.size() == 10 && data.cardCode.matches('^VIP-[A-Z0-9]{6}$')
+        && data.stamps is number && data.stamps >= 0 && data.stamps <= 10
+        && data.totalVisits is number && data.totalVisits >= 0 && data.totalVisits <= 10000
+        && data.rewardsRedeemed is number && data.rewardsRedeemed >= 0 && data.rewardsRedeemed <= 1000
+        && data.rewardNote is string && data.rewardNote.size() <= 200
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidEmailLog(data) {
+      return data.keys().hasAll([
+          'appointmentId', 'clientId', 'clientEmail', 'bookingCode',
+          'date', 'timeSlot', 'lastStatusNotified', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'appointmentId', 'clientId', 'clientEmail', 'bookingCode',
+          'date', 'timeSlot', 'confirmationSentAt', 'dayBeforeReminderSentAt',
+          'oneHourReminderSentAt', 'lastStatusNotified', 'lastError', 'updatedAt'
+        ])
+        && isValidId(data.appointmentId)
+        && isValidId(data.clientId)
+        && data.clientEmail is string && data.clientEmail.size() >= 3 && data.clientEmail.size() <= 160
+        && data.bookingCode is string && data.bookingCode.size() == 10 && data.bookingCode.matches('^LTN-[A-Z0-9]{6}$')
+        && data.date is string && data.date.size() == 10 && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.timeSlot is string && data.timeSlot.size() >= 4 && data.timeSlot.size() <= 12
+        && (!('confirmationSentAt' in data) || data.confirmationSentAt == null || data.confirmationSentAt is timestamp)
+        && (!('dayBeforeReminderSentAt' in data) || data.dayBeforeReminderSentAt == null || data.dayBeforeReminderSentAt is timestamp)
+        && (!('oneHourReminderSentAt' in data) || data.oneHourReminderSentAt == null || data.oneHourReminderSentAt is timestamp)
+        && data.lastStatusNotified in ['pending', 'confirmed', 'in_chair', 'completed', 'cancelled']
+        && (!('lastError' in data) || data.lastError == null || (data.lastError is string && data.lastError.size() <= 300))
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    // --- Collection Match Blocks ---
+
+    // Public catalog: services (no PII)
+    match /services/{serviceId} {
+      allow get: if isValidId(serviceId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(serviceId) && isValidService(incoming());
+      allow update: if isAdmin() && isValidId(serviceId) && isValidService(incoming());
+      allow delete: if isAdmin() && isValidId(serviceId);
+    }
+
+    // Public catalog: nail artists (no PII)
+    match /artists/{artistId} {
+      allow get: if isValidId(artistId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(artistId) && isValidArtist(incoming());
+      allow update: if isAdmin() && isValidId(artistId) && isValidArtist(incoming());
+      allow delete: if isAdmin() && isValidId(artistId);
+    }
+
+    // Public catalog: retail care products (no PII)
+    match /retailProducts/{productId} {
+      allow get: if isValidId(productId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(productId) && isValidRetailProduct(incoming());
+      allow update: if isAdmin() && isValidId(productId) && isValidRetailProduct(incoming());
+      allow delete: if isAdmin() && isValidId(productId);
+    }
+
+    // Public anonymized slot occupancy (zero PII, zero UIDs)
+    match /bookedSlots/{slotId} {
+      allow get: if isValidId(slotId);
+      allow list: if resource.data.status in ['active', 'cancelled'];
+      allow create: if isVerifiedUser()
+        && isValidId(slotId)
+        && isValidBookedSlot(incoming())
+        && incoming().appointmentId == slotId
+        && incoming().createdAt == request.time
+        && existsAfter(/databases/$(database)/documents/appointments/$(slotId))
+        && (
+          (
+            incoming().status == 'active' &&
+            getAfter(/databases/$(database)/documents/appointments/$(slotId)).data.clientId == request.auth.uid
+          ) ||
+          isAdmin()
+        );
+      allow update: if isVerifiedUser()
+        && isValidId(slotId)
+        && isValidBookedSlot(incoming())
+        && incoming().appointmentId == existing().appointmentId
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin() ||
+          (
+            get(/databases/$(database)/documents/appointments/$(slotId)).data.clientId == request.auth.uid &&
+            existing().status == 'active' &&
+            incoming().status == 'cancelled' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+      allow delete: if isAdmin() && isValidId(slotId);
+    }
+
+    // Strictly isolated client PII & preference profiles
+    match /users/{userId}/private/{docId} {
+      allow get: if isValidId(userId) && docId == 'profile' && (isOwner(userId) || isAdmin());
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && docId == 'profile'
+        && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().loyaltyPoints == 0
+        && incoming().createdAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && docId == 'profile'
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin() ||
+          (
+            isOwner(userId) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'phone', 'preferredShape', 'preferredShade', 'allergiesOrNotes', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // Client appointments: strictly restricted to booking owner or studio admin
+    match /appointments/{appointmentId} {
+      allow get: if isSignedIn() && isValidId(appointmentId) && (existing().clientId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.clientId == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser()
+        && isValidId(appointmentId)
+        && isValidAppointment(incoming())
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/services/$(incoming().serviceId))
+        && exists(/databases/$(database)/documents/artists/$(incoming().artistId))
+        && existsAfter(/databases/$(database)/documents/bookedSlots/$(appointmentId))
+        && (
+          (
+            incoming().clientId == request.auth.uid &&
+            incoming().status == 'pending' &&
+            incoming().paymentStatus == 'unpaid'
+          ) ||
+          isAdmin()
+        );
+      allow update: if isVerifiedUser()
+        && isValidId(appointmentId)
+        && isValidAppointment(incoming())
+        && incoming().bookingCode == existing().bookingCode
+        && incoming().clientId == existing().clientId
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin() ||
+          (
+            existing().clientId == request.auth.uid &&
+            existing().status in ['pending', 'confirmed'] &&
+            incoming().status == 'cancelled' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+      allow delete: if isAdmin() && isValidId(appointmentId);
+    }
+
+    // Client retail pickup orders
+    match /retailOrders/{orderId} {
+      allow get: if isSignedIn() && isValidId(orderId) && (existing().clientId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.clientId == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser()
+        && isValidId(orderId)
+        && isValidRetailOrder(incoming())
+        && incoming().clientId == request.auth.uid
+        && incoming().status == 'reserved'
+        && incoming().createdAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(orderId)
+        && isValidRetailOrder(incoming())
+        && incoming().orderCode == existing().orderCode
+        && incoming().clientId == existing().clientId
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin() ||
+          (
+            existing().clientId == request.auth.uid &&
+            existing().status == 'reserved' &&
+            incoming().status == 'cancelled' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+      allow delete: if isAdmin() && isValidId(orderId);
+    }
+
+    // Studio POS ledger: strictly admin only
+    match /posTransactions/{txId} {
+      allow get: if isAdmin() && isValidId(txId);
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && isValidId(txId)
+        && isValidPosTransaction(incoming())
+        && incoming().recordedBy == request.auth.uid;
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(txId);
+    }
+
+    // Admin registry
+    match /admins/{adminUid} {
+      allow get: if isAdmin() && isValidId(adminUid);
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(adminUid) && isValidAdminRecord(incoming()) && incoming().uid == adminUid;
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(adminUid);
+    }
+
+    // Email confirmation & reminder logs (admin-writable via Gmail integration or server-managed)
+    match /emailLogs/{appointmentId} {
+      allow get: if isSignedIn() && isValidId(appointmentId) && (existing().clientId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.clientId == request.auth.uid || isAdmin());
+      allow create: if isAdmin()
+        && isValidId(appointmentId)
+        && isValidEmailLog(incoming())
+        && incoming().appointmentId == appointmentId
+        && exists(/databases/$(database)/documents/appointments/$(appointmentId));
+      allow update: if isAdmin()
+        && isValidId(appointmentId)
+        && isValidEmailLog(incoming())
+        && incoming().appointmentId == existing().appointmentId
+        && incoming().clientId == existing().clientId
+        && incoming().bookingCode == existing().bookingCode;
+      allow delete: if isAdmin() && isValidId(appointmentId);
+    }
+
+    // Public studio portfolio gallery (owner/admin-writable only)
+    match /galleryPosts/{postId} {
+      allow get: if isValidId(postId);
+      allow list: if true;
+      allow create: if isAdmin()
+        && isValidId(postId)
+        && isValidGalleryPost(incoming())
+        && incoming().authorId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(postId)
+        && isValidGalleryPost(incoming())
+        && incoming().authorId == existing().authorId
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(postId);
+    }
+
+    // Client 10-stamp studio loyalty cards (PII-isolated; stamps strictly admin-managed)
+    match /loyaltyCards/{cardId} {
+      allow get: if isSignedIn() && isValidId(cardId) && (
+        isOwner(cardId) ||
+        (resource != null && existing().uid == request.auth.uid) ||
+        (resource != null && isVerifiedUser() && existing().clientEmail == request.auth.token.email) ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.uid == request.auth.uid ||
+        (isVerifiedUser() && resource.data.clientEmail == request.auth.token.email) ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser()
+        && isValidId(cardId)
+        && isValidLoyaltyCard(incoming())
+        && incoming().createdAt == request.time
+        && (
+          (
+            isOwner(cardId) &&
+            incoming().uid == request.auth.uid &&
+            incoming().clientEmail == request.auth.token.email &&
+            incoming().stamps == 0 &&
+            incoming().totalVisits == 0 &&
+            incoming().rewardsRedeemed == 0
+          ) ||
+          isAdmin()
+        );
+      allow update: if isAdmin()
+        && isValidId(cardId)
+        && isValidLoyaltyCard(incoming())
+        && incoming().uid == existing().uid
+        && incoming().cardCode == existing().cardCode
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(cardId);
+    }
+  }
+}
