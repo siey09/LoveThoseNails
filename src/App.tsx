@@ -13,7 +13,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Footer } from './components/Footer';
 import { GalleryPage } from './components/GalleryPage';
 import { HeroSection } from './components/HeroSection';
-import { LookbookSection } from './components/LookbookSection';
 import { LoyaltyPage } from './components/LoyaltyPage';
 import { Navbar, type ActivePage } from './components/Navbar';
 import { RetailSection } from './components/RetailSection';
@@ -21,7 +20,7 @@ import { ServicesSection } from './components/ServicesSection';
 import { StudioProvider, useStudio } from './context/StudioContext';
 
 function StudioShell() {
-  const { isAdmin } = useStudio();
+  const { isAdmin, careShopEnabled } = useStudio();
   const [activePage, setActivePage] = useState<ActivePage>('studio');
   const [bookingOpen, setBookingOpen] = useState(false);
   const [adminLoginOpen, setAdminLoginOpen] = useState(false);
@@ -37,10 +36,10 @@ function StudioShell() {
   const handleNavigate = (page: ActivePage, sectionId?: string) => {
     setActivePage(page);
     if (page === 'studio' && sectionId) {
-      requestAnimationFrame(() => {
+      window.setTimeout(() => {
         const el = document.getElementById(sectionId);
         if (el) el.scrollIntoView({ behavior: 'smooth' });
-      });
+      }, 60);
     } else {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -59,7 +58,6 @@ function StudioShell() {
       <Navbar
         activePage={activePage}
         onNavigate={handleNavigate}
-        onOpenBooking={() => openBooking()}
         onLogoDoubleTrigger={handleLogoDoubleTrigger}
       />
 
@@ -73,10 +71,7 @@ function StudioShell() {
             <ServicesSection
               onBookService={(service) => openBooking({ service })}
             />
-            <LookbookSection
-              onBookLook={(lookbook) => openBooking({ lookbook })}
-            />
-            <RetailSection />
+            {careShopEnabled && <RetailSection />}
           </>
         )}
 
@@ -119,7 +114,7 @@ function StudioShell() {
         onAuthenticatedAdmin={() => handleNavigate('admin')}
       />
 
-      <BagDrawer />
+      {careShopEnabled && <BagDrawer />}
     </div>
   );
 }

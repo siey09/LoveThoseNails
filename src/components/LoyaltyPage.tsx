@@ -10,7 +10,7 @@ interface LoyaltyPageProps {
 const STAMP_SLOTS = Array.from({ length: 10 }, (_, idx) => idx + 1);
 
 export function LoyaltyPage({ onOpenBooking }: LoyaltyPageProps) {
-  const { user, authReady, loyaltyCard, signInWithGoogle } = useStudio();
+  const { user, authReady, loyaltyCard, loyaltyEnabled, signInWithGoogle } = useStudio();
   const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -27,6 +27,39 @@ export function LoyaltyPage({ onOpenBooking }: LoyaltyPageProps) {
       setSigningIn(false);
     }
   };
+
+  if (!loyaltyEnabled) {
+    return (
+      <section className="bg-[#F2ECEB] py-12 sm:py-16 min-h-[70vh] flex items-center">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-12 w-full">
+          <div className="neu-surface p-6 sm:p-10 max-w-xl mx-auto text-center space-y-5">
+            <div className="w-12 h-12 mx-auto neu-inset rounded-2xl flex items-center justify-center text-[#8A5A5C]">
+              <Award className="w-6 h-6" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-[#8A5A5C] font-medium">
+                Love Those Nails by Eshin
+              </p>
+              <h1 className="font-['Playfair_Display'] text-2xl sm:text-3xl font-semibold text-[#141212]">
+                VIP Loyalty Card Currently Paused
+              </h1>
+              <p className="text-xs sm:text-sm text-[#554C4B] leading-relaxed">
+                Our digital 10-stamp loyalty card is temporarily turned off by the studio. Existing
+                stamps remain safely saved, and you can still book your next appointment anytime.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenBooking}
+              className="px-6 py-3 neu-btn-ink text-xs sm:text-sm font-medium cursor-pointer"
+            >
+              Book Next Visit
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   const stamps = loyaltyCard?.stamps ?? 0;
   const totalVisits = loyaltyCard?.totalVisits ?? 0;

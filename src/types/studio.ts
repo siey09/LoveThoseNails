@@ -211,3 +211,19 @@ export interface LoyaltyCard {
   updatedAt?: unknown;
 }
 
+export interface StudioScheduleConfig {
+  openWeekdays: number[];
+  timeSlots: string[];
+  weekdaySlots?: Record<string, string[]>;
+  updatedAt?: unknown;
+}
+
+export type DayOverrideStatus = 'default' | 'open' | 'closed';
+
+export interface DayScheduleOverride {
+  date: string;
+  dayStatus: DayOverrideStatus;
+  blockedSlots: string[];
+  extraSlots: string[];
+  updatedAt?: unknown;
+}

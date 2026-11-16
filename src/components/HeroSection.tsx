@@ -1,30 +1,19 @@
 import { ArrowRight, Calendar } from 'lucide-react';
 import { useStudio } from '../context/StudioContext';
-import { STUDIO_TIME_SLOTS } from '../data/seedCatalog';
+import { getDayScheduleInfo, getTodayIso } from '../lib/schedule';
 
 interface HeroSectionProps {
   onOpenBooking: (preset?: { timeSlot?: string; date?: string }) => void;
   onExploreServices: () => void;
 }
 
-function getTodayIso(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
 export function HeroSection({ onOpenBooking, onExploreServices }: HeroSectionProps) {
-  const { bookedSlots } = useStudio();
+  const { bookedSlots, scheduleConfig, dayOverrides } = useStudio();
   const today = getTodayIso();
 
-  const openSlotsToday = STUDIO_TIME_SLOTS.filter((slot) => {
-    const isTaken = bookedSlots.some(
-      (b) => b.date === today && b.timeSlot === slot && b.status === 'active',
-    );
-    return !isTaken;
-  });
+  const todayInfo = getDayScheduleInfo(today, scheduleConfig, dayOverrides, bookedSlots);
+  const visibleTodaySlots = todayInfo.isClosed ? [] : todayInfo.clientVisibleSlots;
+  const openCount = todayInfo.openCount;
 
   return (
     <section className="bg-[#F2ECEB]">
@@ -83,10 +72,23 @@ export function HeroSection({ onOpenBooking, onExploreServices }: HeroSectionPro
             </div>
 
             <div className="neu-inset p-3.5 sm:p-4 rounded-2xl">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                {STUDIO_TIME_SLOTS.slice(0, 6).map((slot) => {
-                  const isAvailable = openSlotsToday.includes(slot);
-                  return (
+              {todayInfo.isClosed ? (
+                <div className="py-5 text-center space-y-1">
+                  <p className="text-sm font-medium text-[#141212]">Studio Closed Today</p>
+                  <p className="text-xs text-[#554C4B]">
+                    Please choose an upcoming open date to reserve your set.
+                  </p>
+                </div>
+              ) : visibleTodaySlots.length === 0 ? (
+                <div className="py-5 text-center space-y-1">
+                  <p className="text-sm font-medium text-[#141212]">No Open Slots Today</p>
+                  <p className="text-xs text-[#554C4B]">
+                    Pick another upcoming date to book your appointment.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  {visibleTodaySlots.map(({ slot, isAvailable }) => (
                     <button
                       key={slot}
                       type="button"
@@ -100,16 +102,18 @@ export function HeroSection({ onOpenBooking, onExploreServices }: HeroSectionPro
                     >
                       {slot}
                     </button>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="neu-divider" />
 
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#554C4B]">
               <span>
-                {openSlotsToday.length} of {STUDIO_TIME_SLOTS.length} slots available today
+                {todayInfo.isClosed
+                  ? 'Closed today'
+                  : `${openCount} of ${visibleTodaySlots.length} slots available today`}
               </span>
               <button
                 type="button"

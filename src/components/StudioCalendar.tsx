@@ -9,7 +9,13 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useStudio } from '../context/StudioContext';
-import { STUDIO_TIME_SLOTS } from '../data/seedCatalog';
+import {
+  formatIsoDate,
+  formatOpenWeekdaysSummary,
+  getDayScheduleInfo,
+  getNextOpenDateIso,
+  getTodayIso,
+} from '../lib/schedule';
 
 interface StudioCalendarProps {
   onSelectSlot: (date: string, timeSlot: string) => void;
@@ -17,29 +23,39 @@ interface StudioCalendarProps {
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-function formatIso(year: number, monthIndex: number, day: number): string {
-  return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
 export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
-  const { bookedSlots, appointments, emailLogs, user, cancelAppointment } = useStudio();
+  const {
+    bookedSlots,
+    appointments,
+    emailLogs,
+    user,
+    cancelAppointment,
+    scheduleConfig,
+    dayOverrides,
+  } = useStudio();
 
   const now = new Date();
-  const todayIso = formatIso(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayIso = getTodayIso();
 
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    if (now.getDay() === 1) {
-      const tue = new Date(now);
-      tue.setDate(now.getDate() + 1);
-      return formatIso(tue.getFullYear(), tue.getMonth(), tue.getDate());
-    }
-    return todayIso;
-  });
+  const [selectedDate, setSelectedDate] = useState<string>(() =>
+    getNextOpenDateIso(scheduleConfig, dayOverrides, bookedSlots),
+  );
+  const [userPickedDate, setUserPickedDate] = useState(false);
 
   const [isFlipped, setIsFlipped] = useState(false);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (userPickedDate) return;
+    const currentInfo = getDayScheduleInfo(selectedDate, scheduleConfig, dayOverrides, bookedSlots);
+    if (currentInfo.isClosed || currentInfo.openCount === 0) {
+      setSelectedDate(getNextOpenDateIso(scheduleConfig, dayOverrides, bookedSlots));
+    }
+  }, [userPickedDate, selectedDate, scheduleConfig, dayOverrides, bookedSlots]);
 
   const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString('en-US', {
     month: 'long',
@@ -98,17 +114,12 @@ export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
   };
 
   const selectedDayObj = new Date(`${selectedDate}T12:00:00`);
-  const selectedIsMonday = selectedDayObj.getDay() === 1;
   const selectedIsPast = selectedDate < todayIso;
 
-  const daySlotBreakdown = useMemo(() => {
-    return STUDIO_TIME_SLOTS.map((slot) => {
-      const isBooked = bookedSlots.some(
-        (b) => b.date === selectedDate && b.timeSlot === slot && b.status === 'active',
-      );
-      return { slot, isBooked };
-    });
-  }, [bookedSlots, selectedDate]);
+  const selectedDayInfo = useMemo(
+    () => getDayScheduleInfo(selectedDate, scheduleConfig, dayOverrides, bookedSlots),
+    [selectedDate, scheduleConfig, dayOverrides, bookedSlots],
+  );
 
   return (
     <div className="flip-perspective w-full">
@@ -175,148 +186,151 @@ export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
                   />
                 ))}
 
-                {Array.from({ length: daysInMonth }).map((_, idx) => {
-                  const day = idx + 1;
-                  const iso = formatIso(viewYear, viewMonth, day);
-                  const dayOfWeek = new Date(viewYear, viewMonth, day).getDay();
-                  const isMonday = dayOfWeek === 1;
-                  const isPast = iso < todayIso;
-                  const isSelected = selectedDate === iso;
-                  const hasMyBooking = myBookedDates.has(iso);
-                  const takenSlotsCount = new Set(
-                    bookedSlots
-                      .filter((b) => b.date === iso && b.status === 'active')
-                      .map((b) => b.timeSlot),
-                  ).size;
-                  const remaining = Math.max(0, STUDIO_TIME_SLOTS.length - takenSlotsCount);
+            {Array.from({ length: daysInMonth }).map((_, idx) => {
+              const day = idx + 1;
+              const iso = formatIsoDate(viewYear, viewMonth, day);
+              const dayInfo = getDayScheduleInfo(iso, scheduleConfig, dayOverrides, bookedSlots);
+              const isClosed = dayInfo.isClosed;
+              const isPast = iso < todayIso;
+              const isSelected = selectedDate === iso;
+              const hasMyBooking = myBookedDates.has(iso);
+              const remaining = dayInfo.openCount;
 
-                  return (
-                    <button
-                      key={iso}
-                      type="button"
-                      onClick={() => setSelectedDate(iso)}
-                      className={`h-11 sm:h-16 p-1 sm:p-2 !rounded-xl sm:!rounded-[14px] flex flex-col items-center sm:items-stretch justify-center sm:justify-between text-center sm:text-left cursor-pointer ${
-                        isSelected
-                          ? 'neu-btn-ink'
-                          : isMonday || isPast
-                            ? 'neu-inset text-[#554C4B]/55'
-                            : hasMyBooking
-                              ? 'neu-btn-rose font-medium'
-                              : 'neu-btn text-[#141212]'
-                      }`}
-                    >
-                      <span className="font-mono tabular-nums text-[11px] sm:text-xs font-medium leading-none">
-                        {day}
-                      </span>
-                      <span
-                        className={`hidden sm:inline text-[10px] font-mono tabular-nums truncate ${
-                          isSelected ? 'text-white/80' : 'text-[#554C4B]'
-                        }`}
-                      >
-                        {isMonday
-                          ? 'Closed'
-                          : isPast
-                            ? 'Past'
-                            : hasMyBooking
-                              ? 'Booked'
-                              : remaining === 0
-                                ? 'Full'
-                                : `${remaining} open`}
-                      </span>
-                      <span
-                        className={`sm:hidden text-[9px] font-mono tabular-nums leading-none mt-1 ${
-                          isSelected ? 'text-white/85' : 'text-[#554C4B]'
-                        }`}
-                      >
-                        {isMonday
-                          ? 'Off'
-                          : isPast
-                            ? '—'
-                            : hasMyBooking
-                              ? 'You'
-                              : remaining === 0
-                                ? 'Full'
-                                : `${remaining}`}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              return (
+                <button
+                  key={iso}
+                  type="button"
+                  onClick={() => {
+                    setUserPickedDate(true);
+                    setSelectedDate(iso);
+                  }}
+                  className={`h-11 sm:h-16 p-1 sm:p-2 !rounded-xl sm:!rounded-[14px] flex flex-col items-center sm:items-stretch justify-center sm:justify-between text-center sm:text-left cursor-pointer ${
+                    isSelected
+                      ? 'neu-btn-ink'
+                      : isClosed || isPast
+                        ? 'neu-inset text-[#554C4B]/55'
+                        : hasMyBooking
+                          ? 'neu-btn-rose font-medium'
+                          : 'neu-btn text-[#141212]'
+                  }`}
+                >
+                  <span className="font-mono tabular-nums text-[11px] sm:text-xs font-medium leading-none">
+                    {day}
+                  </span>
+                  <span
+                    className={`hidden sm:inline text-[10px] font-mono tabular-nums truncate ${
+                      isSelected ? 'text-white/80' : 'text-[#554C4B]'
+                    }`}
+                  >
+                    {isClosed
+                      ? 'Closed'
+                      : isPast
+                        ? 'Past'
+                        : hasMyBooking
+                          ? 'Booked'
+                          : remaining === 0
+                            ? 'Full'
+                            : `${remaining} open`}
+                  </span>
+                  <span
+                    className={`sm:hidden text-[9px] font-mono tabular-nums leading-none mt-1 ${
+                      isSelected ? 'text-white/85' : 'text-[#554C4B]'
+                    }`}
+                  >
+                    {isClosed
+                      ? 'Off'
+                      : isPast
+                        ? '—'
+                        : hasMyBooking
+                          ? 'You'
+                          : remaining === 0
+                            ? 'Full'
+                            : `${remaining}`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
 
-              <div className="pt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-[#554C4B]">
-                <span>Tue – Sun · 10:00 AM – 7:00 PM</span>
+          <div className="pt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-[#554C4B]">
+            <span>{formatOpenWeekdaysSummary(scheduleConfig.openWeekdays)}</span>
+            {user && (
+              <>
                 <span>·</span>
-                <span>Mondays Closed</span>
-                {user && (
-                  <>
-                    <span>·</span>
-                    <span className="text-[#141212] font-medium">
-                      Rose-tinted dates indicate your scheduled visits
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Selected Day Slot Selector */}
-            <div className="lg:col-span-5 neu-inset p-4 sm:p-6 space-y-4">
-              <div className="flex items-center justify-between pb-1">
-                <div>
-                  <p className="text-xs text-[#554C4B]">Selected Date</p>
-                  <p className="font-mono text-base font-semibold text-[#141212] mt-0.5">
-                    {selectedDate}
-                  </p>
-                </div>
-                <span className="text-xs text-[#554C4B]">
-                  {selectedDayObj.toLocaleDateString('en-US', { weekday: 'long' })}
+                <span className="text-[#141212] font-medium">
+                  Rose-tinted dates indicate your scheduled visits
                 </span>
-              </div>
-
-              <div className="neu-divider" />
-
-              {selectedIsMonday ? (
-                <div className="py-8 text-center space-y-1.5">
-                  <p className="text-sm font-medium text-[#141212]">Studio Closed on Mondays</p>
-                  <p className="text-xs text-[#554C4B]">
-                    Select any Tuesday through Sunday date to reserve a time slot.
-                  </p>
-                </div>
-              ) : selectedIsPast ? (
-                <div className="py-8 text-center space-y-1.5">
-                  <p className="text-sm font-medium text-[#141212]">Past Date</p>
-                  <p className="text-xs text-[#554C4B]">
-                    Please choose today or an upcoming date to view open slots.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {daySlotBreakdown.map(({ slot, isBooked }) => (
-                    <div
-                      key={slot}
-                      className="neu-surface-sm px-4 py-3 flex items-center justify-between gap-3"
-                    >
-                      <p className="font-mono tabular-nums text-sm font-semibold text-[#141212]">
-                        {slot}
-                      </p>
-                      <button
-                        type="button"
-                        disabled={isBooked}
-                        onClick={() => onSelectSlot(selectedDate, slot)}
-                        className={`px-3.5 py-2 text-xs font-medium whitespace-nowrap shrink-0 ${
-                          isBooked
-                            ? 'neu-inset text-[#554C4B]/60 cursor-not-allowed'
-                            : 'neu-btn-ink cursor-pointer'
-                        }`}
-                      >
-                        {isBooked ? 'Booked' : 'Reserve'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </div>
+
+        {/* Selected Day Slot Selector */}
+        <div className="lg:col-span-5 neu-inset p-4 sm:p-6 space-y-4">
+          <div className="flex items-center justify-between pb-1">
+            <div>
+              <p className="text-xs text-[#554C4B]">Selected Date</p>
+              <p className="font-mono text-base font-semibold text-[#141212] mt-0.5">
+                {selectedDate}
+              </p>
+            </div>
+            <span className="text-xs text-[#554C4B]">
+              {selectedDayObj.toLocaleDateString('en-US', { weekday: 'long' })}
+            </span>
+          </div>
+
+          <div className="neu-divider" />
+
+          {selectedDayInfo.isClosed ? (
+            <div className="py-8 text-center space-y-1.5">
+              <p className="text-sm font-medium text-[#141212]">Studio Closed on This Date</p>
+              <p className="text-xs text-[#554C4B]">
+                Please select an open date on the calendar to reserve a time slot.
+              </p>
+            </div>
+          ) : selectedIsPast ? (
+            <div className="py-8 text-center space-y-1.5">
+              <p className="text-sm font-medium text-[#141212]">Past Date</p>
+              <p className="text-xs text-[#554C4B]">
+                Please choose today or an upcoming date to view open slots.
+              </p>
+            </div>
+          ) : selectedDayInfo.clientVisibleSlots.length === 0 ? (
+            <div className="py-8 text-center space-y-1.5">
+              <p className="text-sm font-medium text-[#141212]">No Open Slots Available</p>
+              <p className="text-xs text-[#554C4B]">
+                All slots on this date are currently unavailable. Please choose another date.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {selectedDayInfo.clientVisibleSlots.map(({ slot, isBooked }) => (
+                <div
+                  key={slot}
+                  className="neu-surface-sm px-4 py-3 flex items-center justify-between gap-3"
+                >
+                  <p className="font-mono tabular-nums text-sm font-semibold text-[#141212]">
+                    {slot}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={isBooked}
+                    onClick={() => onSelectSlot(selectedDate, slot)}
+                    className={`px-3.5 py-2 text-xs font-medium whitespace-nowrap shrink-0 ${
+                      isBooked
+                        ? 'neu-inset text-[#554C4B]/60 cursor-not-allowed'
+                        : 'neu-btn-ink cursor-pointer'
+                    }`}
+                  >
+                    {isBooked ? 'Booked' : 'Reserve'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
 
         {/* BACK FACE: Auto-Flipped Live Pending Loading & Accepted Reservation View */}
         <div
@@ -501,23 +515,40 @@ export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
                       </p>
                     </div>
 
-                    <div className="shrink-0">
+                    <div className="shrink-0 space-y-1.5 text-right">
                       {confirmCancelId === appt.id ? (
                         <div className="inline-flex items-center gap-2">
                           <button
                             type="button"
+                            disabled={cancellingId === appt.id}
                             onClick={async () => {
-                              await cancelAppointment(appt.id);
-                              setConfirmCancelId(null);
+                              setCancellingId(appt.id);
+                              setCancelError(null);
+                              try {
+                                await cancelAppointment(appt.id);
+                                setConfirmCancelId(null);
+                              } catch (err) {
+                                setCancelError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : 'Unable to cancel appointment right now.',
+                                );
+                              } finally {
+                                setCancellingId(null);
+                              }
                             }}
-                            className="px-3 py-1.5 rounded-xl bg-[#DC2626] text-white text-xs font-medium cursor-pointer shadow-sm"
+                            className="px-3 py-1.5 rounded-xl bg-[#DC2626] text-white text-xs font-medium cursor-pointer shadow-sm disabled:opacity-50"
                           >
-                            Confirm Cancel
+                            {cancellingId === appt.id ? 'Cancelling...' : 'Confirm Cancel'}
                           </button>
                           <button
                             type="button"
-                            onClick={() => setConfirmCancelId(null)}
-                            className="px-3 py-1.5 neu-btn text-xs text-[#554C4B] cursor-pointer"
+                            disabled={cancellingId === appt.id}
+                            onClick={() => {
+                              setConfirmCancelId(null);
+                              setCancelError(null);
+                            }}
+                            className="px-3 py-1.5 neu-btn text-xs text-[#554C4B] cursor-pointer disabled:opacity-50"
                           >
                             Keep
                           </button>
@@ -525,11 +556,17 @@ export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
                       ) : (
                         <button
                           type="button"
-                          onClick={() => setConfirmCancelId(appt.id)}
+                          onClick={() => {
+                            setCancelError(null);
+                            setConfirmCancelId(appt.id);
+                          }}
                           className="text-xs text-[#DC2626] underline underline-offset-4 cursor-pointer"
                         >
                           Cancel Appointment
                         </button>
+                      )}
+                      {cancelError && confirmCancelId === appt.id && (
+                        <p className="text-[11px] text-[#DC2626]">{cancelError}</p>
                       )}
                     </div>
                   </div>

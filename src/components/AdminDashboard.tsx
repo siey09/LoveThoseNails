@@ -17,6 +17,7 @@ import {
   Search,
   Send,
   ShieldCheck,
+  ShoppingBag,
   Sparkles,
   Trash2,
   Upload,
@@ -51,6 +52,14 @@ const SERVICE_CATEGORIES: ServiceCategory[] = [
   'Signature Nail Art',
   'Manicure & Spa',
   'Add-Ons & Removal',
+];
+
+const GALLERY_CATEGORIES: GalleryCategory[] = [
+  'Signature Nail Art',
+  'Gel-X & Extensions',
+  'BIAB & Builder',
+  'French & Chrome',
+  'Manicure & Spa',
 ];
 
 const RETAIL_CATEGORIES: RetailCategory[] = [
@@ -128,6 +137,8 @@ export function AdminDashboard({
     emailLogs,
     galleryPosts,
     allLoyaltyCards,
+    loyaltyEnabled,
+    careShopEnabled,
     connectAdminGmail,
     signOutUser,
     adminUpdateAppointment,
@@ -139,6 +150,8 @@ export function AdminDashboard({
     adminCreateGalleryPost,
     adminUpdateGalleryPost,
     adminDeleteGalleryPost,
+    adminSetLoyaltyEnabled,
+    adminSetCareShopEnabled,
     adminGrantLoyaltyStamp,
     adminCreateOrStampByEmail,
     adminRedeemLoyaltyReward,
@@ -153,6 +166,8 @@ export function AdminDashboard({
   const [loyaltyFormError, setLoyaltyFormError] = useState<string | null>(null);
   const [loyaltySavingNew, setLoyaltySavingNew] = useState(false);
   const [loyaltyBusyId, setLoyaltyBusyId] = useState<string | null>(null);
+  const [togglingLoyalty, setTogglingLoyalty] = useState(false);
+  const [togglingCareShop, setTogglingCareShop] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [syncingCatalog, setSyncingCatalog] = useState(false);
@@ -162,25 +177,34 @@ export function AdminDashboard({
     nextStatus: 'confirmed' | 'cancelled';
   } | null>(null);
   const [sendingEmailAction, setSendingEmailAction] = useState(false);
+  const [updatingStatusOnly, setUpdatingStatusOnly] = useState(false);
+  const [busyApptId, setBusyApptId] = useState<string | null>(null);
   const [emailActionError, setEmailActionError] = useState<string | null>(null);
 
-  // New Service form state
+  // Service form state (supports create & edit)
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [srvName, setSrvName] = useState('');
   const [srvCategory, setSrvCategory] = useState<ServiceCategory>('Gel-X & Extensions');
   const [srvDuration, setSrvDuration] = useState('90');
   const [srvPrice, setSrvPrice] = useState('95');
   const [srvDesc, setSrvDesc] = useState('');
   const [srvSaving, setSrvSaving] = useState(false);
+  const [srvBusyId, setSrvBusyId] = useState<string | null>(null);
+  const [srvError, setSrvError] = useState<string | null>(null);
 
-  // New Retail form state
+  // Retail form state (supports create & edit)
+  const [editingRetailId, setEditingRetailId] = useState<string | null>(null);
   const [retName, setRetName] = useState('');
   const [retCategory, setRetCategory] = useState<RetailCategory>('Cuticle Care');
   const [retPrice, setRetPrice] = useState('28');
   const [retStock, setRetStock] = useState('12');
   const [retDesc, setRetDesc] = useState('');
   const [retSaving, setRetSaving] = useState(false);
+  const [retBusyId, setRetBusyId] = useState<string | null>(null);
+  const [retError, setRetError] = useState<string | null>(null);
 
   const [confirmDeleteGalleryId, setConfirmDeleteGalleryId] = useState<string | null>(null);
+  const [deletingGalleryId, setDeletingGalleryId] = useState<string | null>(null);
   const [galleryComposerOpen, setGalleryComposerOpen] = useState(false);
   const [editingGalleryPost, setEditingGalleryPost] = useState<GalleryPost | null>(null);
   const [galTitle, setGalTitle] = useState('');
@@ -260,11 +284,56 @@ export function AdminDashboard({
     }
   };
 
+  const handleToggleLoyaltyProgram = async (nextEnabled: boolean) => {
+    if (togglingLoyalty || nextEnabled === loyaltyEnabled) return;
+    setTogglingLoyalty(true);
+    setErrorNotice(null);
+    try {
+      await adminSetLoyaltyEnabled(nextEnabled);
+      flashNotice(
+        nextEnabled
+          ? 'Loyalty Card turned ON. Now visible to clients in navigation and footer.'
+          : 'Loyalty Card turned OFF. Hidden from clients.',
+      );
+    } catch (err) {
+      setErrorNotice(
+        err instanceof Error ? err.message : 'Could not update Loyalty Card setting.',
+      );
+    } finally {
+      setTogglingLoyalty(false);
+    }
+  };
+
+  const handleToggleCareShopProgram = async (nextEnabled: boolean) => {
+    if (togglingCareShop || nextEnabled === careShopEnabled) return;
+    setTogglingCareShop(true);
+    setErrorNotice(null);
+    try {
+      await adminSetCareShopEnabled(nextEnabled);
+      flashNotice(
+        nextEnabled
+          ? 'Care Shop turned ON. Products and bag drawer are now visible to clients.'
+          : 'Care Shop turned OFF. Hidden from public site and navigation.',
+      );
+    } catch (err) {
+      setErrorNotice(
+        err instanceof Error ? err.message : 'Could not update Care Shop setting.',
+      );
+    } finally {
+      setTogglingCareShop(false);
+    }
+  };
+
   const handleSyncCatalog = async () => {
     setSyncingCatalog(true);
+    setErrorNotice(null);
     try {
       await seedCatalogToFirestore();
       flashNotice('Default studio services, artists, and retail catalog synced to Firestore.');
+    } catch (err) {
+      setErrorNotice(
+        err instanceof Error ? err.message : 'Unable to sync studio catalog to Firestore.',
+      );
     } finally {
       setSyncingCatalog(false);
     }
@@ -276,8 +345,18 @@ export function AdminDashboard({
       setPendingEmailAction({ appt, nextStatus });
       return;
     }
-    await adminUpdateAppointment(appt.id, { status: nextStatus });
-    flashNotice(`Updated ${appt.bookingCode} to ${nextStatus.replace('_', ' ')}.`);
+    setBusyApptId(appt.id);
+    setErrorNotice(null);
+    try {
+      await adminUpdateAppointment(appt.id, { status: nextStatus });
+      flashNotice(`Updated ${appt.bookingCode} to ${nextStatus.replace('_', ' ')}.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unable to update appointment status.';
+      setErrorNotice(msg);
+      throw err;
+    } finally {
+      setBusyApptId(null);
+    }
   };
 
   const handleExecutePendingEmailAction = async () => {
@@ -306,6 +385,28 @@ export function AdminDashboard({
       );
     } finally {
       setSendingEmailAction(false);
+    }
+  };
+
+  const handleExecuteStatusWithoutEmail = async () => {
+    if (!pendingEmailAction) return;
+    setUpdatingStatusOnly(true);
+    setEmailActionError(null);
+    try {
+      const { appt, nextStatus } = pendingEmailAction;
+      await adminUpdateAppointment(appt.id, { status: nextStatus });
+      setPendingEmailAction(null);
+      flashNotice(
+        nextStatus === 'confirmed'
+          ? `Confirmed ${appt.bookingCode} in schedule (no email sent).`
+          : `Cancelled ${appt.bookingCode} in schedule (no email sent).`,
+      );
+    } catch (err) {
+      setEmailActionError(
+        err instanceof Error ? err.message : 'Could not update appointment status.',
+      );
+    } finally {
+      setUpdatingStatusOnly(false);
     }
   };
 
@@ -349,12 +450,33 @@ export function AdminDashboard({
     }
   };
 
-  const handleAddService = async (e: FormEvent) => {
+  const resetServiceForm = () => {
+    setEditingServiceId(null);
+    setSrvName('');
+    setSrvCategory('Gel-X & Extensions');
+    setSrvDuration('90');
+    setSrvPrice('95');
+    setSrvDesc('');
+    setSrvError(null);
+  };
+
+  const handleSaveService = async (e: FormEvent) => {
     e.preventDefault();
-    if (srvName.trim().length < 2 || srvDesc.trim().length < 5) return;
+    setSrvError(null);
+    if (srvName.trim().length < 2) {
+      setSrvError('Service title must be at least 2 characters.');
+      return;
+    }
+    if (srvDesc.trim().length < 5) {
+      setSrvError('Treatment description must be at least 5 characters.');
+      return;
+    }
     setSrvSaving(true);
     try {
-      const id = `srv_${Date.now().toString(36)}`;
+      const existing = editingServiceId
+        ? services.find((s) => s.id === editingServiceId)
+        : undefined;
+      const id = editingServiceId ?? `srv_${Date.now().toString(36)}`;
       await adminUpsertService({
         id,
         name: srvName.trim(),
@@ -362,37 +484,70 @@ export function AdminDashboard({
         description: srvDesc.trim(),
         durationMin: Number(srvDuration) || 75,
         price: Number(srvPrice) || 80,
-        featured: true,
-        active: true,
-        sortOrder: services.length + 1,
+        featured: existing?.featured ?? true,
+        active: existing?.active ?? true,
+        sortOrder: existing?.sortOrder ?? services.length + 1,
       });
-      setSrvName('');
-      setSrvDesc('');
-      flashNotice(`Added service "${srvName.trim()}".`);
+      const savedName = srvName.trim();
+      resetServiceForm();
+      flashNotice(
+        editingServiceId
+          ? `Updated service "${savedName}".`
+          : `Added service "${savedName}".`,
+      );
+    } catch (err) {
+      setSrvError(err instanceof Error ? err.message : 'Could not save service.');
     } finally {
       setSrvSaving(false);
     }
   };
 
-  const handleAddRetail = async (e: FormEvent) => {
+  const resetRetailForm = () => {
+    setEditingRetailId(null);
+    setRetName('');
+    setRetCategory('Cuticle Care');
+    setRetPrice('28');
+    setRetStock('12');
+    setRetDesc('');
+    setRetError(null);
+  };
+
+  const handleSaveRetail = async (e: FormEvent) => {
     e.preventDefault();
-    if (retName.trim().length < 2 || retDesc.trim().length < 5) return;
+    setRetError(null);
+    if (retName.trim().length < 2) {
+      setRetError('Product name must be at least 2 characters.');
+      return;
+    }
+    if (retDesc.trim().length < 5) {
+      setRetError('Product description must be at least 5 characters.');
+      return;
+    }
     setRetSaving(true);
     try {
-      const id = `ret_${Date.now().toString(36)}`;
+      const existing = editingRetailId
+        ? retailProducts.find((p) => p.id === editingRetailId)
+        : undefined;
+      const id = editingRetailId ?? `ret_${Date.now().toString(36)}`;
       await adminUpsertRetailProduct({
         id,
         name: retName.trim(),
         category: retCategory,
         description: retDesc.trim(),
         price: Number(retPrice) || 25,
-        stock: Number(retStock) || 10,
-        shadeHex: '#D2AAAB',
-        active: true,
+        stock: Number(retStock) || 0,
+        shadeHex: existing?.shadeHex ?? '#D2AAAB',
+        active: existing?.active ?? true,
       });
-      setRetName('');
-      setRetDesc('');
-      flashNotice(`Added care product "${retName.trim()}".`);
+      const savedName = retName.trim();
+      resetRetailForm();
+      flashNotice(
+        editingRetailId
+          ? `Updated care product "${savedName}".`
+          : `Added care product "${savedName}".`,
+      );
+    } catch (err) {
+      setRetError(err instanceof Error ? err.message : 'Could not save care product.');
     } finally {
       setRetSaving(false);
     }
@@ -502,6 +657,42 @@ export function AdminDashboard({
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+              <button
+                type="button"
+                disabled={togglingLoyalty}
+                onClick={() => handleToggleLoyaltyProgram(!loyaltyEnabled)}
+                aria-pressed={loyaltyEnabled}
+                className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-medium cursor-pointer disabled:opacity-50 ${
+                  loyaltyEnabled ? 'neu-btn text-[#16A34A]' : 'neu-btn text-[#8E353B]'
+                }`}
+              >
+                <Award className="w-3.5 h-3.5" />
+                <span>
+                  {togglingLoyalty
+                    ? 'Updating...'
+                    : loyaltyEnabled
+                      ? 'Loyalty Card: ON'
+                      : 'Loyalty Card: OFF'}
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={togglingCareShop}
+                onClick={() => handleToggleCareShopProgram(!careShopEnabled)}
+                aria-pressed={careShopEnabled}
+                className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-medium cursor-pointer disabled:opacity-50 ${
+                  careShopEnabled ? 'neu-btn text-[#16A34A]' : 'neu-btn text-[#8E353B]'
+                }`}
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                <span>
+                  {togglingCareShop
+                    ? 'Updating...'
+                    : careShopEnabled
+                      ? 'Care Shop: ON'
+                      : 'Care Shop: OFF'}
+                </span>
+              </button>
               <button
                 type="button"
                 disabled={connectingGmail}
@@ -655,13 +846,34 @@ export function AdminDashboard({
             <div className="neu-divider" />
 
             {filteredAppointments.length === 0 ? (
-              <p className="text-sm text-[#554C4B] py-8 text-center">
-                No appointments match this filter.
-              </p>
+              <div className="py-8 text-center space-y-3">
+                <p className="text-sm text-[#554C4B]">
+                  No appointments match this filter.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {apptFilter !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setApptFilter('all')}
+                      className="px-4 py-2 neu-btn text-xs font-medium text-[#141212] cursor-pointer"
+                    >
+                      Show All Bookings
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('calendar')}
+                    className="px-4 py-2 neu-btn-rose text-xs font-medium cursor-pointer"
+                  >
+                    Open Schedule Calendar
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="space-y-4">
                 {filteredAppointments.map((appt) => {
                   const log = emailLogs.find((l) => l.appointmentId === appt.id);
+                  const isBusy = busyApptId === appt.id;
                   return (
                     <div
                       key={appt.id}
@@ -696,11 +908,11 @@ export function AdminDashboard({
                           <Mail className="w-3 h-3 text-[#8A5A5C] shrink-0" />
                           <span>
                             {appt.status === 'pending' ? (
-                              'Awaiting admin confirm · Gmail confirmation sends on approval'
+                              'Awaiting admin confirm · You can confirm with or without email'
                             ) : appt.status === 'cancelled' ? (
                               log?.lastStatusNotified === 'cancelled'
                                 ? `Cancellation email sent to ${appt.clientEmail}`
-                                : 'Cancelled (no cancellation email sent yet)'
+                                : 'Cancelled (no cancellation email sent)'
                             ) : log?.confirmationSentAt ? (
                               <span className="text-[#16A34A] font-medium">
                                 Confirmation email sent to {appt.clientEmail}
@@ -720,18 +932,20 @@ export function AdminDashboard({
                         {appt.status === 'pending' && (
                           <button
                             type="button"
+                            disabled={isBusy}
                             onClick={() => handleApptStatus(appt, 'confirmed')}
-                            className="px-3.5 py-2 neu-btn-ink text-xs font-medium cursor-pointer"
+                            className="px-3.5 py-2 neu-btn-ink text-xs font-medium cursor-pointer disabled:opacity-50"
                           >
-                            Confirm &amp; Email
+                            Confirm
                           </button>
                         )}
                         {(appt.status === 'confirmed' || appt.status === 'in_chair') &&
                           !log?.confirmationSentAt && (
                             <button
                               type="button"
+                              disabled={isBusy}
                               onClick={() => handleApptStatus(appt, 'confirmed')}
-                              className="inline-flex items-center gap-1.5 px-3.5 py-2 neu-btn text-xs font-medium text-[#141212] cursor-pointer"
+                              className="inline-flex items-center gap-1.5 px-3.5 py-2 neu-btn text-xs font-medium text-[#141212] cursor-pointer disabled:opacity-50"
                             >
                               <Send className="w-3 h-3" />
                               <span>Send Confirm Email</span>
@@ -740,17 +954,19 @@ export function AdminDashboard({
                         {(appt.status === 'pending' || appt.status === 'confirmed') && (
                           <button
                             type="button"
-                            onClick={() => handleApptStatus(appt, 'in_chair')}
-                            className="px-3.5 py-2 neu-btn-rose text-xs font-medium cursor-pointer"
+                            disabled={isBusy}
+                            onClick={() => handleApptStatus(appt, 'in_chair').catch(() => {})}
+                            className="px-3.5 py-2 neu-btn-rose text-xs font-medium cursor-pointer disabled:opacity-50"
                           >
-                            In Chair
+                            {isBusy ? 'Updating...' : 'In Chair'}
                           </button>
                         )}
                         {appt.status !== 'completed' && appt.status !== 'cancelled' && (
                           <button
                             type="button"
-                            onClick={() => handleApptStatus(appt, 'completed')}
-                            className="px-3.5 py-2 neu-btn text-xs font-medium text-[#141212] cursor-pointer"
+                            disabled={isBusy}
+                            onClick={() => handleApptStatus(appt, 'completed').catch(() => {})}
+                            className="px-3.5 py-2 neu-btn text-xs font-medium text-[#141212] cursor-pointer disabled:opacity-50"
                           >
                             Complete
                           </button>
@@ -758,8 +974,9 @@ export function AdminDashboard({
                         {appt.status !== 'cancelled' && appt.status !== 'completed' && (
                           <button
                             type="button"
+                            disabled={isBusy}
                             onClick={() => handleApptStatus(appt, 'cancelled')}
-                            className="px-3.5 py-2 neu-btn text-xs font-medium text-[#8E353B] cursor-pointer"
+                            className="px-3.5 py-2 neu-btn text-xs font-medium text-[#8E353B] cursor-pointer disabled:opacity-50"
                           >
                             Cancel
                           </button>
@@ -857,20 +1074,34 @@ export function AdminDashboard({
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
+                            disabled={deletingGalleryId === post.id}
                             onClick={async () => {
-                              await adminDeleteGalleryPost(post.id);
-                              setConfirmDeleteGalleryId(null);
-                              flashNotice('Gallery post removed.');
+                              setDeletingGalleryId(post.id);
+                              setErrorNotice(null);
+                              try {
+                                await adminDeleteGalleryPost(post.id);
+                                setConfirmDeleteGalleryId(null);
+                                flashNotice('Gallery post removed.');
+                              } catch (err) {
+                                setErrorNotice(
+                                  err instanceof Error
+                                    ? err.message
+                                    : 'Unable to delete gallery post.',
+                                );
+                              } finally {
+                                setDeletingGalleryId(null);
+                              }
                             }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 neu-btn-ink text-[11px] cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 neu-btn-ink text-[11px] cursor-pointer disabled:opacity-50"
                           >
                             <Check className="w-3 h-3" />
-                            <span>Confirm</span>
+                            <span>{deletingGalleryId === post.id ? 'Removing...' : 'Confirm'}</span>
                           </button>
                           <button
                             type="button"
+                            disabled={deletingGalleryId === post.id}
                             onClick={() => setConfirmDeleteGalleryId(null)}
-                            className="px-2 py-1 neu-btn text-[11px] text-[#554C4B] cursor-pointer"
+                            className="px-2 py-1 neu-btn text-[11px] text-[#554C4B] cursor-pointer disabled:opacity-50"
                           >
                             Cancel
                           </button>
@@ -896,6 +1127,50 @@ export function AdminDashboard({
         {/* TAB 3: Loyalty Cards Manager */}
         {activeTab === 'loyalty' && (
           <div className="neu-surface p-5 sm:p-8 space-y-6">
+            <div className="neu-inset p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Award className="w-4 h-4 text-[#8A5A5C]" />
+                  <p className="text-sm font-semibold text-[#141212]">
+                    Public Loyalty Card Program
+                  </p>
+                </div>
+                <p className="text-xs text-[#554C4B]">
+                  {loyaltyEnabled
+                    ? 'ON — Clients can see the Loyalty Card page in navigation and collect stamps.'
+                    : 'OFF — Hidden from public navigation and paused for clients.'}
+                </p>
+              </div>
+              <div
+                className="inline-flex items-center gap-1.5 neu-surface-sm p-1.5 rounded-xl self-start sm:self-auto shrink-0"
+                role="group"
+                aria-label="Toggle Loyalty Card Program"
+              >
+                <button
+                  type="button"
+                  disabled={togglingLoyalty}
+                  onClick={() => handleToggleLoyaltyProgram(true)}
+                  className={`px-4 py-2 text-xs font-semibold rounded-lg cursor-pointer transition-all disabled:opacity-50 ${
+                    loyaltyEnabled ? 'neu-btn-ink' : 'text-[#554C4B] hover:text-[#141212]'
+                  }`}
+                >
+                  ON
+                </button>
+                <button
+                  type="button"
+                  disabled={togglingLoyalty}
+                  onClick={() => handleToggleLoyaltyProgram(false)}
+                  className={`px-4 py-2 text-xs font-semibold rounded-lg cursor-pointer transition-all disabled:opacity-50 ${
+                    !loyaltyEnabled
+                      ? 'neu-btn-rose text-[#8E353B]'
+                      : 'text-[#554C4B] hover:text-[#141212]'
+                  }`}
+                >
+                  OFF
+                </button>
+              </div>
+            </div>
+
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="font-['Playfair_Display'] text-2xl font-semibold text-[#141212]">
@@ -1033,9 +1308,14 @@ export function AdminDashboard({
                           disabled={busy || card.stamps <= 0}
                           onClick={async () => {
                             setLoyaltyBusyId(card.id);
+                            setErrorNotice(null);
                             try {
                               await adminGrantLoyaltyStamp(card.id, -1);
                               flashNotice(`Removed 1 stamp from ${card.clientEmail}.`);
+                            } catch (err) {
+                              setErrorNotice(
+                                err instanceof Error ? err.message : 'Unable to remove stamp.',
+                              );
                             } finally {
                               setLoyaltyBusyId(null);
                             }
@@ -1051,9 +1331,14 @@ export function AdminDashboard({
                           disabled={busy || card.stamps >= 10}
                           onClick={async () => {
                             setLoyaltyBusyId(card.id);
+                            setErrorNotice(null);
                             try {
                               await adminGrantLoyaltyStamp(card.id, 1);
                               flashNotice(`Added +1 loyalty stamp to ${card.clientEmail}.`);
+                            } catch (err) {
+                              setErrorNotice(
+                                err instanceof Error ? err.message : 'Unable to add stamp.',
+                              );
                             } finally {
                               setLoyaltyBusyId(null);
                             }
@@ -1069,10 +1354,15 @@ export function AdminDashboard({
                           disabled={busy || !readyToRedeem}
                           onClick={async () => {
                             setLoyaltyBusyId(card.id);
+                            setErrorNotice(null);
                             try {
                               await adminRedeemLoyaltyReward(card.id);
                               flashNotice(
                                 `Redeemed complimentary set reward for ${card.clientEmail} and reset card.`,
+                              );
+                            } catch (err) {
+                              setErrorNotice(
+                                err instanceof Error ? err.message : 'Unable to redeem reward.',
                               );
                             } finally {
                               setLoyaltyBusyId(null);
@@ -1099,12 +1389,27 @@ export function AdminDashboard({
               <h2 className="font-['Playfair_Display'] text-2xl font-semibold text-[#141212]">
                 Service Menu ({services.length})
               </h2>
-              <form onSubmit={handleAddService} className="neu-inset p-4 space-y-3">
-                <p className="text-xs font-semibold text-[#141212]">Add New Treatment</p>
+              <form onSubmit={handleSaveService} className="neu-inset p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-[#141212]">
+                    {editingServiceId ? 'Edit Treatment' : 'Add New Treatment'}
+                  </p>
+                  {editingServiceId && (
+                    <button
+                      type="button"
+                      onClick={resetServiceForm}
+                      className="text-[11px] font-medium text-[#554C4B] hover:text-[#141212] underline cursor-pointer"
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input
                     type="text"
                     required
+                    minLength={2}
+                    maxLength={100}
                     value={srvName}
                     onChange={(e) => setSrvName(e.target.value)}
                     placeholder="Service title"
@@ -1123,8 +1428,8 @@ export function AdminDashboard({
                   </select>
                   <input
                     type="number"
-                    min={15}
-                    max={240}
+                    min={10}
+                    max={300}
                     value={srvDuration}
                     onChange={(e) => setSrvDuration(e.target.value)}
                     placeholder="Duration (min)"
@@ -1143,58 +1448,195 @@ export function AdminDashboard({
                 <textarea
                   rows={2}
                   required
+                  minLength={5}
+                  maxLength={400}
                   value={srvDesc}
                   onChange={(e) => setSrvDesc(e.target.value)}
-                  placeholder="Treatment description..."
+                  placeholder="Treatment description (at least 5 characters)..."
                   className="w-full neu-input px-3 py-2 text-xs text-[#141212]"
                 />
+                {srvError && <p className="text-xs text-[#8E353B]">{srvError}</p>}
                 <button
                   type="submit"
                   disabled={srvSaving}
-                  className="px-4 py-2 neu-btn-ink text-xs font-medium cursor-pointer"
+                  className="px-4 py-2 neu-btn-ink text-xs font-medium cursor-pointer disabled:opacity-50"
                 >
-                  {srvSaving ? 'Saving...' : 'Add Service'}
+                  {srvSaving
+                    ? 'Saving...'
+                    : editingServiceId
+                      ? 'Save Changes'
+                      : 'Add Service'}
                 </button>
               </form>
 
               <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
-                {services.map((srv) => (
-                  <div
-                    key={srv.id}
-                    className="neu-surface-sm px-4 py-3 flex items-center justify-between gap-3"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-[#141212]">{srv.name}</p>
-                      <p className="text-xs text-[#554C4B]">
-                        {srv.category} · {srv.durationMin}m · ${srv.price}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await adminDeleteService(srv.id);
-                        flashNotice(`Deleted service "${srv.name}".`);
-                      }}
-                      className="p-2 neu-btn text-[#8E353B] cursor-pointer"
-                      aria-label={`Delete ${srv.name}`}
+                {services.map((srv) => {
+                  const busy = srvBusyId === srv.id;
+                  return (
+                    <div
+                      key={srv.id}
+                      className={`neu-surface-sm px-4 py-3 flex items-center justify-between gap-3 ${
+                        srv.active ? '' : 'opacity-65'
+                      }`}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-[#141212] truncate">
+                          {srv.name}{' '}
+                          {!srv.active && (
+                            <span className="text-[11px] font-normal text-[#8E353B]">
+                              (Hidden)
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-[#554C4B] truncate">
+                          {srv.category} · {srv.durationMin}m · ${srv.price}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={async () => {
+                            setSrvBusyId(srv.id);
+                            setErrorNotice(null);
+                            try {
+                              await adminUpsertService({
+                                ...srv,
+                                active: !srv.active,
+                              });
+                              flashNotice(
+                                srv.active
+                                  ? `Hidden "${srv.name}" from public menu.`
+                                  : `Shown "${srv.name}" on public menu.`,
+                              );
+                            } catch (err) {
+                              setErrorNotice(
+                                err instanceof Error ? err.message : 'Unable to update service.',
+                              );
+                            } finally {
+                              setSrvBusyId(null);
+                            }
+                          }}
+                          className="px-2.5 py-1.5 neu-btn text-[11px] font-medium text-[#554C4B] hover:text-[#141212] cursor-pointer disabled:opacity-50"
+                        >
+                          {srv.active ? 'Hide' : 'Show'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            setEditingServiceId(srv.id);
+                            setSrvName(srv.name);
+                            setSrvCategory(srv.category);
+                            setSrvDuration(String(srv.durationMin));
+                            setSrvPrice(String(srv.price));
+                            setSrvDesc(srv.description);
+                            setSrvError(null);
+                          }}
+                          className="p-2 neu-btn text-[#141212] cursor-pointer disabled:opacity-50"
+                          aria-label={`Edit ${srv.name}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={async () => {
+                            setSrvBusyId(srv.id);
+                            setErrorNotice(null);
+                            try {
+                              await adminDeleteService(srv.id);
+                              if (editingServiceId === srv.id) resetServiceForm();
+                              flashNotice(`Deleted service "${srv.name}".`);
+                            } catch (err) {
+                              setErrorNotice(
+                                err instanceof Error ? err.message : 'Unable to delete service.',
+                              );
+                            } finally {
+                              setSrvBusyId(null);
+                            }
+                          }}
+                          className="p-2 neu-btn text-[#8E353B] cursor-pointer disabled:opacity-50"
+                          aria-label={`Delete ${srv.name}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
             <div className="neu-surface p-6 sm:p-8 space-y-6">
+              <div className="neu-inset p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <ShoppingBag className="w-4 h-4 text-[#8A5A5C]" />
+                    <p className="text-sm font-semibold text-[#141212]">
+                      Public Care Shop
+                    </p>
+                  </div>
+                  <p className="text-xs text-[#554C4B]">
+                    {careShopEnabled
+                      ? 'ON — Clients can browse Care Apothecary items and reserve products.'
+                      : 'OFF — Hidden from public studio page, navigation, and footer.'}
+                  </p>
+                </div>
+                <div
+                  className="inline-flex items-center gap-1.5 neu-surface-sm p-1.5 rounded-xl self-start sm:self-auto shrink-0"
+                  role="group"
+                  aria-label="Toggle Public Care Shop"
+                >
+                  <button
+                    type="button"
+                    disabled={togglingCareShop}
+                    onClick={() => handleToggleCareShopProgram(true)}
+                    className={`px-4 py-2 text-xs font-semibold rounded-lg cursor-pointer transition-all disabled:opacity-50 ${
+                      careShopEnabled ? 'neu-btn-ink' : 'text-[#554C4B] hover:text-[#141212]'
+                    }`}
+                  >
+                    ON
+                  </button>
+                  <button
+                    type="button"
+                    disabled={togglingCareShop}
+                    onClick={() => handleToggleCareShopProgram(false)}
+                    className={`px-4 py-2 text-xs font-semibold rounded-lg cursor-pointer transition-all disabled:opacity-50 ${
+                      !careShopEnabled
+                        ? 'neu-btn-rose text-[#8E353B]'
+                        : 'text-[#554C4B] hover:text-[#141212]'
+                    }`}
+                  >
+                    OFF
+                  </button>
+                </div>
+              </div>
+
               <h2 className="font-['Playfair_Display'] text-2xl font-semibold text-[#141212]">
                 Care Apothecary ({retailProducts.length})
               </h2>
-              <form onSubmit={handleAddRetail} className="neu-inset p-4 space-y-3">
-                <p className="text-xs font-semibold text-[#141212]">Add Care Item</p>
+              <form onSubmit={handleSaveRetail} className="neu-inset p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-[#141212]">
+                    {editingRetailId ? 'Edit Care Item' : 'Add Care Item'}
+                  </p>
+                  {editingRetailId && (
+                    <button
+                      type="button"
+                      onClick={resetRetailForm}
+                      className="text-[11px] font-medium text-[#554C4B] hover:text-[#141212] underline cursor-pointer"
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input
                     type="text"
                     required
+                    minLength={2}
+                    maxLength={100}
                     value={retName}
                     onChange={(e) => setRetName(e.target.value)}
                     placeholder="Product name"
@@ -1223,7 +1665,7 @@ export function AdminDashboard({
                   <input
                     type="number"
                     min={0}
-                    max={1000}
+                    max={10000}
                     value={retStock}
                     onChange={(e) => setRetStock(e.target.value)}
                     placeholder="Stock qty"
@@ -1233,45 +1675,123 @@ export function AdminDashboard({
                 <textarea
                   rows={2}
                   required
+                  minLength={5}
+                  maxLength={350}
                   value={retDesc}
                   onChange={(e) => setRetDesc(e.target.value)}
-                  placeholder="Product description..."
+                  placeholder="Product description (at least 5 characters)..."
                   className="w-full neu-input px-3 py-2 text-xs text-[#141212]"
                 />
+                {retError && <p className="text-xs text-[#8E353B]">{retError}</p>}
                 <button
                   type="submit"
                   disabled={retSaving}
-                  className="px-4 py-2 neu-btn-ink text-xs font-medium cursor-pointer"
+                  className="px-4 py-2 neu-btn-ink text-xs font-medium cursor-pointer disabled:opacity-50"
                 >
-                  {retSaving ? 'Saving...' : 'Add Product'}
+                  {retSaving
+                    ? 'Saving...'
+                    : editingRetailId
+                      ? 'Save Changes'
+                      : 'Add Product'}
                 </button>
               </form>
 
               <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
-                {retailProducts.map((prod) => (
-                  <div
-                    key={prod.id}
-                    className="neu-surface-sm px-4 py-3 flex items-center justify-between gap-3"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-[#141212]">{prod.name}</p>
-                      <p className="text-xs text-[#554C4B]">
-                        {prod.category} · ${prod.price} · {prod.stock} in stock
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await adminDeleteRetailProduct(prod.id);
-                        flashNotice(`Deleted "${prod.name}".`);
-                      }}
-                      className="p-2 neu-btn text-[#8E353B] cursor-pointer"
-                      aria-label={`Delete ${prod.name}`}
+                {retailProducts.map((prod) => {
+                  const busy = retBusyId === prod.id;
+                  return (
+                    <div
+                      key={prod.id}
+                      className={`neu-surface-sm px-4 py-3 flex items-center justify-between gap-3 ${
+                        prod.active ? '' : 'opacity-65'
+                      }`}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-[#141212] truncate">
+                          {prod.name}{' '}
+                          {!prod.active && (
+                            <span className="text-[11px] font-normal text-[#8E353B]">
+                              (Hidden)
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-[#554C4B] truncate">
+                          {prod.category} · ${prod.price} · {prod.stock} in stock
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={async () => {
+                            setRetBusyId(prod.id);
+                            setErrorNotice(null);
+                            try {
+                              await adminUpsertRetailProduct({
+                                ...prod,
+                                active: !prod.active,
+                              });
+                              flashNotice(
+                                prod.active
+                                  ? `Hidden "${prod.name}" from Care Shop.`
+                                  : `Shown "${prod.name}" in Care Shop.`,
+                              );
+                            } catch (err) {
+                              setErrorNotice(
+                                err instanceof Error ? err.message : 'Unable to update product.',
+                              );
+                            } finally {
+                              setRetBusyId(null);
+                            }
+                          }}
+                          className="px-2.5 py-1.5 neu-btn text-[11px] font-medium text-[#554C4B] hover:text-[#141212] cursor-pointer disabled:opacity-50"
+                        >
+                          {prod.active ? 'Hide' : 'Show'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            setEditingRetailId(prod.id);
+                            setRetName(prod.name);
+                            setRetCategory(prod.category);
+                            setRetPrice(String(prod.price));
+                            setRetStock(String(prod.stock));
+                            setRetDesc(prod.description);
+                            setRetError(null);
+                          }}
+                          className="p-2 neu-btn text-[#141212] cursor-pointer disabled:opacity-50"
+                          aria-label={`Edit ${prod.name}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={async () => {
+                            setRetBusyId(prod.id);
+                            setErrorNotice(null);
+                            try {
+                              await adminDeleteRetailProduct(prod.id);
+                              if (editingRetailId === prod.id) resetRetailForm();
+                              flashNotice(`Deleted "${prod.name}".`);
+                            } catch (err) {
+                              setErrorNotice(
+                                err instanceof Error ? err.message : 'Unable to delete product.',
+                              );
+                            } finally {
+                              setRetBusyId(null);
+                            }
+                          }}
+                          className="p-2 neu-btn text-[#8E353B] cursor-pointer disabled:opacity-50"
+                          aria-label={`Delete ${prod.name}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1382,7 +1902,22 @@ export function AdminDashboard({
                   />
                 </label>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <label className="block text-xs font-medium text-[#141212]">
+                    Category
+                    <select
+                      value={galCategory}
+                      onChange={(e) => setGalCategory(e.target.value as GalleryCategory)}
+                      className="mt-1.5 w-full neu-input px-3.5 py-2.5 text-sm text-[#141212] focus:outline-none"
+                    >
+                      {GALLERY_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
                   <label className="block text-xs font-medium text-[#141212]">
                     Nail Shape
                     <select
@@ -1477,36 +2012,40 @@ export function AdminDashboard({
           </div>
         </div>
       )}
-      {/* Explicit Confirmation Dialog Before Sending Gmail Message */}
+      {/* Explicit Confirmation Dialog Before Updating / Sending Gmail Message */}
       {pendingEmailAction &&
         (() => {
           const { appt, nextStatus } = pendingEmailAction;
           const preview = buildBookingEmailPreview(nextStatus, appt);
           const isConfirm = nextStatus === 'confirmed';
+          const isAlreadyConfirmed = isConfirm && appt.status !== 'pending';
+          const modalBusy = sendingEmailAction || updatingStatusOnly;
           return (
             <div
               className="fixed inset-0 z-50 bg-[#141212]/45 backdrop-blur-[2px] flex items-center justify-center p-4"
               role="dialog"
               aria-modal="true"
-              aria-label="Confirm sending booking email via Gmail"
+              aria-label="Confirm booking action"
             >
               <div className="w-full max-w-lg neu-surface p-6 sm:p-8 space-y-5">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.18em] text-[#8A5A5C] font-medium">
-                      Gmail Confirmation Required
+                      {isAlreadyConfirmed ? 'Gmail Notification' : 'Appointment Update'}
                     </p>
                     <h2 className="font-['Playfair_Display'] text-2xl font-semibold text-[#141212] mt-1">
-                      {isConfirm
-                        ? 'Confirm Appointment & Email Client?'
-                        : 'Cancel Appointment & Email Client?'}
+                      {isAlreadyConfirmed
+                        ? 'Send Confirmation Email?'
+                        : isConfirm
+                          ? 'Confirm Appointment?'
+                          : 'Cancel Appointment?'}
                     </h2>
                   </div>
                   <button
                     type="button"
-                    disabled={sendingEmailAction}
+                    disabled={modalBusy}
                     onClick={() => setPendingEmailAction(null)}
-                    aria-label="Close email confirmation dialog"
+                    aria-label="Close confirmation dialog"
                     className="p-2.5 neu-btn text-[#141212] cursor-pointer disabled:opacity-50"
                   >
                     <X className="w-4 h-4" />
@@ -1546,8 +2085,9 @@ export function AdminDashboard({
 
                 {!gmailConnected && (
                   <p className="text-[11px] text-[#554C4B] leading-relaxed">
-                    Clicking send will ask your Google account to grant Gmail send permission for
-                    this studio session.
+                    Sending via Gmail will request permission for this session.{' '}
+                    {!isAlreadyConfirmed &&
+                      'You can also update the booking status immediately without sending an email.'}
                   </p>
                 )}
 
@@ -1557,18 +2097,32 @@ export function AdminDashboard({
                   </div>
                 )}
 
-                <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-end gap-3 pt-1">
+                <div className="flex flex-col-reverse sm:flex-row sm:flex-wrap sm:items-center justify-end gap-2.5 pt-1">
                   <button
                     type="button"
-                    disabled={sendingEmailAction}
+                    disabled={modalBusy}
                     onClick={() => setPendingEmailAction(null)}
-                    className="px-5 py-2.5 neu-btn text-xs font-medium text-[#141212] cursor-pointer disabled:opacity-50"
+                    className="px-4 py-2.5 neu-btn text-xs font-medium text-[#554C4B] cursor-pointer disabled:opacity-50"
                   >
-                    Cancel
+                    Close
                   </button>
+                  {!isAlreadyConfirmed && (
+                    <button
+                      type="button"
+                      disabled={modalBusy}
+                      onClick={handleExecuteStatusWithoutEmail}
+                      className="px-4 py-2.5 neu-btn text-xs font-medium text-[#141212] cursor-pointer disabled:opacity-50"
+                    >
+                      {updatingStatusOnly
+                        ? 'Updating...'
+                        : isConfirm
+                          ? 'Confirm Without Email'
+                          : 'Cancel Without Email'}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    disabled={sendingEmailAction}
+                    disabled={modalBusy}
                     onClick={handleExecutePendingEmailAction}
                     className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-medium cursor-pointer disabled:opacity-50 ${
                       isConfirm ? 'neu-btn-ink' : 'neu-btn-rose text-[#8E353B]'

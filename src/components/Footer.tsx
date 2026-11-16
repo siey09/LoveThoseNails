@@ -1,3 +1,5 @@
+import { useStudio } from '../context/StudioContext';
+import { formatOpenWeekdaysSummary } from '../lib/schedule';
 import { BrandCrestImage } from './NailArtVisuals';
 import type { ActivePage } from './Navbar';
 
@@ -7,6 +9,7 @@ interface FooterProps {
 }
 
 export function Footer({ onNavigate, onOpenBooking }: FooterProps) {
+  const { loyaltyEnabled, careShopEnabled, scheduleConfig } = useStudio();
   return (
     <footer className="bg-[#F2ECEB] text-[#141212]">
       <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-12 py-10 sm:py-12">
@@ -25,8 +28,8 @@ export function Footer({ onNavigate, onOpenBooking }: FooterProps) {
           <div className="md:col-span-3 space-y-2 text-xs">
             <p className="font-semibold text-[#141212]">Studio Hours &amp; Location</p>
             <p className="text-[#554C4B]">842 Rosemont Terrace, Suite 2B</p>
-            <p className="text-[#554C4B]">Tuesday – Sunday · 10:00 AM – 7:00 PM</p>
-            <p className="text-[#554C4B]">Closed Mondays · By Appointment</p>
+            <p className="text-[#554C4B]">{formatOpenWeekdaysSummary(scheduleConfig.openWeekdays)}</p>
+            <p className="text-[#554C4B]">By Appointment Only</p>
           </div>
 
           <div className="md:col-span-4 space-y-2 text-xs">
@@ -41,32 +44,29 @@ export function Footer({ onNavigate, onOpenBooking }: FooterProps) {
               </button>
               <button
                 type="button"
-                onClick={() => onNavigate('studio', 'lookbook')}
-                className="hover:text-[#141212] cursor-pointer"
-              >
-                Shape &amp; Pigment Lookbook
-              </button>
-              <button
-                type="button"
                 onClick={() => onNavigate('gallery')}
                 className="hover:text-[#141212] cursor-pointer"
               >
                 Recent Work Gallery
               </button>
-              <button
-                type="button"
-                onClick={() => onNavigate('loyalty')}
-                className="hover:text-[#141212] cursor-pointer"
-              >
-                VIP Loyalty Card
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigate('studio', 'care-shop')}
-                className="hover:text-[#141212] cursor-pointer"
-              >
-                Care Apothecary
-              </button>
+              {loyaltyEnabled && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('loyalty')}
+                  className="hover:text-[#141212] cursor-pointer"
+                >
+                  VIP Loyalty Card
+                </button>
+              )}
+              {careShopEnabled && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('studio', 'care-shop')}
+                  className="hover:text-[#141212] cursor-pointer"
+                >
+                  Care Apothecary
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onNavigate('my-bookings')}

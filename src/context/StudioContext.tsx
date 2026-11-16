@@ -35,12 +35,15 @@ import {
   type BookingEmailType,
 } from '../lib/gmail';
 import { SEED_ARTISTS, SEED_RETAIL, SEED_SERVICES } from '../data/seedCatalog';
+import { DEFAULT_STUDIO_SCHEDULE, sortTimeSlots } from '../lib/schedule';
 import type {
   Appointment,
   AppointmentStatus,
   ArtistItem,
   BookedSlot,
   CartItem,
+  DayOverrideStatus,
+  DayScheduleOverride,
   EmailLog,
   GalleryCategory,
   GalleryPost,
@@ -53,6 +56,7 @@ import type {
   RetailOrderStatus,
   RetailProduct,
   ServiceItem,
+  StudioScheduleConfig,
   UserPrivateProfile,
 } from '../types/studio';
 
@@ -156,6 +160,25 @@ interface StudioContextValue {
   adminDeleteGalleryPost: (postId: string) => Promise<void>;
   loyaltyCard: LoyaltyCard | null;
   allLoyaltyCards: LoyaltyCard[];
+  loyaltyEnabled: boolean;
+  careShopEnabled: boolean;
+  scheduleConfig: StudioScheduleConfig;
+  dayOverrides: Record<string, DayScheduleOverride>;
+  adminSetLoyaltyEnabled: (enabled: boolean) => Promise<void>;
+  adminSetCareShopEnabled: (enabled: boolean) => Promise<void>;
+  adminUpdateStudioSchedule: (next: {
+    openWeekdays: number[];
+    timeSlots: string[];
+    weekdaySlots?: Record<string, string[]>;
+  }) => Promise<void>;
+  adminUpdateDaySchedule: (
+    date: string,
+    updates: {
+      dayStatus?: DayOverrideStatus;
+      blockedSlots?: string[];
+      extraSlots?: string[];
+    },
+  ) => Promise<void>;
   adminGrantLoyaltyStamp: (cardId: string, delta?: number) => Promise<void>;
   adminCreateOrStampByEmail: (payload: {
     email: string;
@@ -205,12 +228,30 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   const [galleryPosts, setGalleryPosts] = useState<GalleryPost[]>([]);
   const [loyaltyCard, setLoyaltyCard] = useState<LoyaltyCard | null>(null);
   const [allLoyaltyCards, setAllLoyaltyCards] = useState<LoyaltyCard[]>([]);
+  const [loyaltyEnabled, setLoyaltyEnabled] = useState(true);
+  const [careShopEnabled, setCareShopEnabled] = useState(false);
+  const [scheduleConfig, setScheduleConfig] =
+    useState<StudioScheduleConfig>(DEFAULT_STUDIO_SCHEDULE);
+  const [dayOverrides, setDayOverrides] = useState<Record<string, DayScheduleOverride>>({});
   const [profile, setProfile] = useState<UserPrivateProfile | null>(null);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isBagOpen, setIsBagOpen] = useState(false);
   const seededOnceRef = useRef(false);
   const isGmailAuthInFlightRef = useRef(false);
+  const loyaltyEnabledRef = useRef(true);
+  const careShopEnabledRef = useRef(false);
+
+  useEffect(() => {
+    loyaltyEnabledRef.current = loyaltyEnabled;
+  }, [loyaltyEnabled]);
+
+  useEffect(() => {
+    careShopEnabledRef.current = careShopEnabled;
+    if (!careShopEnabled) {
+      setIsBagOpen(false);
+    }
+  }, [careShopEnabled]);
 
   const isAdmin = useMemo(() => {
     if (!user || !user.emailVerified) return false;
@@ -329,12 +370,88 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
       },
     );
 
+    const unsubSettings = onSnapshot(
+      doc(db, 'studioSettings', 'studio'),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as { loyaltyEnabled?: boolean; careShopEnabled?: boolean };
+          setLoyaltyEnabled(data.loyaltyEnabled !== false);
+          setCareShopEnabled(data.careShopEnabled === true);
+        } else {
+          setLoyaltyEnabled(true);
+          setCareShopEnabled(false);
+        }
+      },
+      (err) => {
+        console.warn('Studio settings fallback:', err.message);
+      },
+    );
+
+    const unsubSchedule = onSnapshot(
+      doc(db, 'studioSettings', 'schedule'),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as Partial<StudioScheduleConfig>;
+          const openWeekdays = Array.isArray(data.openWeekdays)
+            ? data.openWeekdays.filter((d) => typeof d === 'number' && d >= 0 && d <= 6)
+            : DEFAULT_STUDIO_SCHEDULE.openWeekdays;
+          const timeSlots = Array.isArray(data.timeSlots)
+            ? sortTimeSlots(data.timeSlots.filter((s) => typeof s === 'string'))
+            : DEFAULT_STUDIO_SCHEDULE.timeSlots;
+          const rawMap = data.weekdaySlots;
+          const weekdaySlots: Record<string, string[]> = {};
+          for (let d = 0; d <= 6; d += 1) {
+            const key = String(d);
+            if (rawMap && Array.isArray(rawMap[key])) {
+              weekdaySlots[key] = sortTimeSlots(
+                rawMap[key].filter((s) => typeof s === 'string'),
+              );
+            } else {
+              weekdaySlots[key] = [...timeSlots];
+            }
+          }
+          setScheduleConfig({ openWeekdays, timeSlots, weekdaySlots, updatedAt: data.updatedAt });
+        } else {
+          setScheduleConfig(DEFAULT_STUDIO_SCHEDULE);
+        }
+      },
+      (err) => {
+        console.warn('Studio schedule fallback:', err.message);
+      },
+    );
+
+    const unsubDaySchedules = onSnapshot(
+      collection(db, 'daySchedules'),
+      (snap) => {
+        const nextMap: Record<string, DayScheduleOverride> = {};
+        for (const d of snap.docs) {
+          const data = d.data() as DayScheduleOverride;
+          if (data?.date) {
+            nextMap[data.date] = {
+              date: data.date,
+              dayStatus: data.dayStatus || 'default',
+              blockedSlots: Array.isArray(data.blockedSlots) ? data.blockedSlots : [],
+              extraSlots: Array.isArray(data.extraSlots) ? data.extraSlots : [],
+              updatedAt: data.updatedAt,
+            };
+          }
+        }
+        setDayOverrides(nextMap);
+      },
+      (err) => {
+        console.warn('Day schedules listener notice:', err.message);
+      },
+    );
+
     return () => {
       unsubServices();
       unsubArtists();
       unsubRetail();
       unsubSlots();
       unsubGallery();
+      unsubSettings();
+      unsubSchedule();
+      unsubDaySchedules();
     };
   }, []);
 
@@ -508,7 +625,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
             .map((d) => ({ id: d.id, ...(d.data() as Omit<LoyaltyCard, 'id'>) }))
             .sort((a, b) => (b.stamps || 0) - (a.stamps || 0));
           setLoyaltyCard(cards[0]);
-        } else if (user.emailVerified && user.email) {
+        } else if (loyaltyEnabledRef.current && user.emailVerified && user.email) {
           const fallbackRef = doc(db, 'loyaltyCards', user.uid);
           const initialCard = {
             uid: user.uid,
@@ -816,15 +933,19 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
 
   const cancelAppointment = useCallback(async (appointmentId: string) => {
     try {
+      const slotRef = doc(db, 'bookedSlots', appointmentId);
+      const slotSnap = await getDoc(slotRef);
       const batch = writeBatch(db);
       batch.update(doc(db, 'appointments', appointmentId), {
         status: 'cancelled',
         updatedAt: serverTimestamp(),
       });
-      batch.update(doc(db, 'bookedSlots', appointmentId), {
-        status: 'cancelled',
-        updatedAt: serverTimestamp(),
-      });
+      if (slotSnap.exists()) {
+        batch.update(slotRef, {
+          status: 'cancelled',
+          updatedAt: serverTimestamp(),
+        });
+      }
       await batch.commit();
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `appointments/${appointmentId}`);
@@ -838,6 +959,8 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     ) => {
       if (!isAdmin) throw new Error('Studio admin privileges required.');
       try {
+        const slotRef = doc(db, 'bookedSlots', appointmentId);
+        const slotSnap = await getDoc(slotRef);
         const batch = writeBatch(db);
         const sanitized: Record<string, unknown> = {
           updatedAt: serverTimestamp(),
@@ -850,17 +973,19 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
 
         batch.update(doc(db, 'appointments', appointmentId), sanitized);
 
-        if (updates.status === 'cancelled') {
-          batch.update(doc(db, 'bookedSlots', appointmentId), {
-            status: 'cancelled',
-            updatedAt: serverTimestamp(),
-          });
-        } else if (updates.date || updates.timeSlot || updates.status === 'confirmed') {
-          const slotUpdates: Record<string, unknown> = { updatedAt: serverTimestamp() };
-          if (updates.date) slotUpdates.date = updates.date;
-          if (updates.timeSlot) slotUpdates.timeSlot = clampStr(updates.timeSlot, 12);
-          if (updates.status === 'confirmed') slotUpdates.status = 'active';
-          batch.update(doc(db, 'bookedSlots', appointmentId), slotUpdates);
+        if (slotSnap.exists()) {
+          if (updates.status === 'cancelled') {
+            batch.update(slotRef, {
+              status: 'cancelled',
+              updatedAt: serverTimestamp(),
+            });
+          } else if (updates.date || updates.timeSlot || updates.status === 'confirmed') {
+            const slotUpdates: Record<string, unknown> = { updatedAt: serverTimestamp() };
+            if (updates.date) slotUpdates.date = updates.date;
+            if (updates.timeSlot) slotUpdates.timeSlot = clampStr(updates.timeSlot, 12);
+            if (updates.status === 'confirmed') slotUpdates.status = 'active';
+            batch.update(slotRef, slotUpdates);
+          }
         }
 
         await batch.commit();
@@ -1094,12 +1219,28 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     async (serviceId: string) => {
       if (!isAdmin) throw new Error('Studio admin privileges required.');
       try {
+        if (!remoteServices || remoteServices.length === 0) {
+          const batch = writeBatch(db);
+          for (const srv of SEED_SERVICES) {
+            if (srv.id === serviceId) continue;
+            const { id, ...rest } = srv;
+            batch.set(doc(db, 'services', id), { ...rest, updatedAt: serverTimestamp() });
+          }
+          if (!remoteArtists || remoteArtists.length === 0) {
+            for (const art of SEED_ARTISTS) {
+              const { id, ...rest } = art;
+              batch.set(doc(db, 'artists', id), { ...rest, updatedAt: serverTimestamp() });
+            }
+          }
+          await batch.commit();
+          return;
+        }
         await deleteDoc(doc(db, 'services', serviceId));
       } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `services/${serviceId}`);
       }
     },
-    [isAdmin],
+    [isAdmin, remoteServices, remoteArtists],
   );
 
   const adminUpsertArtist = useCallback(
@@ -1162,12 +1303,22 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     async (productId: string) => {
       if (!isAdmin) throw new Error('Studio admin privileges required.');
       try {
+        if (!remoteRetail || remoteRetail.length === 0) {
+          const batch = writeBatch(db);
+          for (const ret of SEED_RETAIL) {
+            if (ret.id === productId) continue;
+            const { id, ...rest } = ret;
+            batch.set(doc(db, 'retailProducts', id), { ...rest, updatedAt: serverTimestamp() });
+          }
+          await batch.commit();
+          return;
+        }
         await deleteDoc(doc(db, 'retailProducts', productId));
       } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `retailProducts/${productId}`);
       }
     },
-    [isAdmin],
+    [isAdmin, remoteRetail],
   );
 
   const adminCreateGalleryPost = useCallback(
@@ -1378,6 +1529,120 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     [isAdmin],
   );
 
+  const adminSetLoyaltyEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (!isAdmin) throw new Error('Studio owner privileges required.');
+      try {
+        await setDoc(doc(db, 'studioSettings', 'studio'), {
+          loyaltyEnabled: Boolean(enabled),
+          careShopEnabled: Boolean(careShopEnabledRef.current),
+          updatedAt: serverTimestamp(),
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'studioSettings/studio');
+      }
+    },
+    [isAdmin],
+  );
+
+  const adminSetCareShopEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (!isAdmin) throw new Error('Studio owner privileges required.');
+      try {
+        await setDoc(doc(db, 'studioSettings', 'studio'), {
+          loyaltyEnabled: Boolean(loyaltyEnabledRef.current),
+          careShopEnabled: Boolean(enabled),
+          updatedAt: serverTimestamp(),
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'studioSettings/studio');
+      }
+    },
+    [isAdmin],
+  );
+
+  const adminUpdateStudioSchedule = useCallback(
+    async (next: {
+      openWeekdays: number[];
+      timeSlots: string[];
+      weekdaySlots?: Record<string, string[]>;
+    }) => {
+      if (!isAdmin) throw new Error('Studio owner privileges required.');
+      const sanitizedWeekdays = Array.from(
+        new Set(next.openWeekdays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)),
+      ).sort((a, b) => a - b);
+      const sanitizedSlots = sortTimeSlots(
+        next.timeSlots.map((s) => clampStr(s, 12)).filter((s) => s.length >= 4),
+      ).slice(0, 24);
+      const sanitizedWeekdaySlots: Record<string, string[]> = {};
+      for (let d = 0; d <= 6; d += 1) {
+        const key = String(d);
+        const rawList = next.weekdaySlots?.[key] ?? scheduleConfig.weekdaySlots?.[key] ?? sanitizedSlots;
+        sanitizedWeekdaySlots[key] = sortTimeSlots(
+          rawList.map((s) => clampStr(s, 12)).filter((s) => s.length >= 4),
+        ).slice(0, 24);
+      }
+      try {
+        await setDoc(doc(db, 'studioSettings', 'schedule'), {
+          openWeekdays: sanitizedWeekdays,
+          timeSlots: sanitizedSlots,
+          weekdaySlots: sanitizedWeekdaySlots,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'studioSettings/schedule');
+      }
+    },
+    [isAdmin, scheduleConfig.weekdaySlots],
+  );
+
+  const adminUpdateDaySchedule = useCallback(
+    async (
+      date: string,
+      updates: {
+        dayStatus?: DayOverrideStatus;
+        blockedSlots?: string[];
+        extraSlots?: string[];
+      },
+    ) => {
+      if (!isAdmin) throw new Error('Studio owner privileges required.');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        throw new Error('Invalid date format.');
+      }
+      const existingOverride = dayOverrides[date];
+      const nextStatus: DayOverrideStatus =
+        updates.dayStatus ?? existingOverride?.dayStatus ?? 'default';
+      const nextBlocked = sortTimeSlots(
+        (updates.blockedSlots ?? existingOverride?.blockedSlots ?? [])
+          .map((s) => clampStr(s, 12))
+          .filter((s) => s.length >= 4),
+      ).slice(0, 24);
+      const nextExtra = sortTimeSlots(
+        (updates.extraSlots ?? existingOverride?.extraSlots ?? [])
+          .map((s) => clampStr(s, 12))
+          .filter((s) => s.length >= 4),
+      ).slice(0, 24);
+
+      const ref = doc(db, 'daySchedules', date);
+      try {
+        if (nextStatus === 'default' && nextBlocked.length === 0 && nextExtra.length === 0) {
+          await deleteDoc(ref);
+        } else {
+          await setDoc(ref, {
+            date,
+            dayStatus: nextStatus,
+            blockedSlots: nextBlocked,
+            extraSlots: nextExtra,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `daySchedules/${date}`);
+      }
+    },
+    [isAdmin, dayOverrides],
+  );
+
   const value: StudioContextValue = {
     user,
     authReady,
@@ -1395,6 +1660,14 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     galleryPosts,
     loyaltyCard,
     allLoyaltyCards,
+    loyaltyEnabled,
+    careShopEnabled,
+    scheduleConfig,
+    dayOverrides,
+    adminSetLoyaltyEnabled,
+    adminSetCareShopEnabled,
+    adminUpdateStudioSchedule,
+    adminUpdateDaySchedule,
     profile,
     cart,
     isBagOpen,

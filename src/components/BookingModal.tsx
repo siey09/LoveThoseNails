@@ -1,7 +1,8 @@
 import { CheckCircle2, Loader2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useStudio } from '../context/StudioContext';
-import { STUDIO_TIME_SLOTS } from '../data/seedCatalog';
+import { NAIL_SHAPES } from '../data/seedCatalog';
+import { getDayScheduleInfo, getNextOpenDateIso, getTodayIso } from '../lib/schedule';
 import { BOOTSTRAP_ADMIN_EMAIL } from '../lib/firebase';
 import type {
   Appointment,
@@ -26,16 +27,6 @@ interface BookingModalProps {
   onViewBookings: () => void;
 }
 
-function getDefaultDateIso(): string {
-  const base = new Date();
-  if (base.getDay() === 1) {
-    base.setDate(base.getDate() + 1);
-  }
-  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(
-    base.getDate(),
-  ).padStart(2, '0')}`;
-}
-
 export function BookingModal({
   isOpen,
   initial,
@@ -48,6 +39,8 @@ export function BookingModal({
     services,
     artists,
     bookedSlots,
+    scheduleConfig,
+    dayOverrides,
     catalogSynced,
     isAdmin,
     signInWithGoogle,
@@ -57,8 +50,13 @@ export function BookingModal({
   const activeServices = useMemo(() => services.filter((s) => s.active), [services]);
   const activeArtists = useMemo(() => artists.filter((a) => a.active), [artists]);
 
+  const [selectedServiceId, setSelectedServiceId] = useState<string>('');
+  const [selectedArtistId, setSelectedArtistId] = useState<string>('');
+  const [nailShape, setNailShape] = useState<NailShape>('Almond');
+  const [shadePreference, setShadePreference] = useState<string>('Dusty Rose');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('');
+  const [editingDateTime, setEditingDateTime] = useState(false);
   const [clientName, setClientName] = useState<string>('');
   const [clientPhone, setClientPhone] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
@@ -66,36 +64,48 @@ export function BookingModal({
   const [errorMsg, setErrorMsg] = useState('');
   const [confirmedAppt, setConfirmedAppt] = useState<Appointment | null>(null);
 
-  const selectedService = initial?.service || activeServices[0];
-  const selectedArtist = initial?.artist || activeArtists[0];
-  const nailShape: NailShape = initial?.lookbook?.shape || profile?.preferredShape || 'Almond';
-  const shadePreference = initial?.lookbook
-    ? `${initial.lookbook.shadeName} (${initial.lookbook.finish})`
-    : profile?.preferredShade || 'Dusty Rose';
-
   useEffect(() => {
     if (!isOpen) return;
     setErrorMsg('');
     setConfirmedAppt(null);
-    setSelectedDate(initial?.date || getDefaultDateIso());
+    setSelectedServiceId(initial?.service?.id || activeServices[0]?.id || '');
+    setSelectedArtistId(initial?.artist?.id || activeArtists[0]?.id || '');
+    setNailShape(initial?.lookbook?.shape || profile?.preferredShape || 'Almond');
+    setShadePreference(
+      initial?.lookbook
+        ? `${initial.lookbook.shadeName} (${initial.lookbook.finish})`
+        : profile?.preferredShade || 'Dusty Rose',
+    );
+    setSelectedDate(
+      initial?.date || getNextOpenDateIso(scheduleConfig, dayOverrides, bookedSlots),
+    );
     setSelectedTimeSlot(initial?.timeSlot || '');
+    setEditingDateTime(!(initial?.date && initial?.timeSlot));
     setClientName(profile?.displayName || user?.displayName || '');
     setClientPhone(profile?.phone || '');
     setNotes(profile?.allergiesOrNotes || '');
-  }, [isOpen, initial, profile, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initial]);
 
   if (!isOpen) return null;
 
-  const hasLockedDateTime = Boolean(initial?.date && initial?.timeSlot);
+  const selectedService =
+    activeServices.find((s) => s.id === selectedServiceId) || activeServices[0];
+  const selectedArtist =
+    activeArtists.find((a) => a.id === selectedArtistId) || activeArtists[0];
 
-  const takenSlotsForDate = bookedSlots
-    .filter((slot) => slot.status === 'active' && slot.date === selectedDate)
-    .map((slot) => slot.timeSlot);
+  const dateScheduleInfo = selectedDate
+    ? getDayScheduleInfo(selectedDate, scheduleConfig, dayOverrides, bookedSlots)
+    : null;
 
   const handleConfirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedService || !selectedArtist || !selectedDate || !selectedTimeSlot) {
-      setErrorMsg('Please select a date and time slot.');
+      setErrorMsg('Please select a treatment, date, and time slot.');
+      return;
+    }
+    if (dateScheduleInfo?.isClosed) {
+      setErrorMsg('The studio is closed on this date. Please select another open date.');
       return;
     }
     setErrorMsg('');
@@ -131,7 +141,7 @@ export function BookingModal({
         date: selectedDate,
         timeSlot: selectedTimeSlot,
         nailShape,
-        shadePreference,
+        shadePreference: shadePreference.trim() || 'Dusty Rose',
         addons: [],
         clientName: clientName || currentUser.displayName || 'Studio Guest',
         clientPhone: clientPhone || '000-000-0000',
@@ -229,6 +239,18 @@ export function BookingModal({
                     {confirmedAppt.timeSlot}
                   </p>
                 </div>
+                <div>
+                  <p className="text-[#554C4B]">Treatment</p>
+                  <p className="font-medium text-[#141212] mt-0.5">
+                    {confirmedAppt.serviceName}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[#554C4B]">Shape &amp; Shade</p>
+                  <p className="font-medium text-[#141212] mt-0.5">
+                    {confirmedAppt.nailShape} · {confirmedAppt.shadePreference}
+                  </p>
+                </div>
               </div>
 
               <div className="neu-divider" />
@@ -279,28 +301,109 @@ export function BookingModal({
         ) : (
           <form onSubmit={handleConfirmBooking} className="flex flex-col flex-1 overflow-y-auto">
             <div className="p-5 sm:p-6 space-y-5 flex-1">
-              {/* Selected Date & Time Display (or quick picker if opened without slot) */}
-              {hasLockedDateTime ? (
-                <div className="neu-inset p-5 grid grid-cols-2 gap-4">
+              {/* Treatment, Shape & Shade Selection */}
+              <div className="neu-surface-sm p-4 sm:p-5 space-y-3.5">
+                <div>
+                  <label className="block text-xs font-medium text-[#141212] mb-1.5">
+                    Treatment
+                  </label>
+                  <select
+                    value={selectedService?.id || ''}
+                    onChange={(e) => setSelectedServiceId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 neu-input text-xs sm:text-sm text-[#141212]"
+                  >
+                    {activeServices.map((srv) => (
+                      <option key={srv.id} value={srv.id}>
+                        {srv.name} — ${srv.price} ({srv.durationMin} min)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-[#554C4B]">
-                      Selected Date
-                    </p>
-                    <p className="font-mono tabular-nums text-base font-semibold text-[#141212] mt-1">
-                      {selectedDate}
-                    </p>
+                    <label className="block text-xs font-medium text-[#141212] mb-1.5">
+                      Nail Shape
+                    </label>
+                    <select
+                      value={nailShape}
+                      onChange={(e) => setNailShape(e.target.value as NailShape)}
+                      className="w-full px-3.5 py-2.5 neu-input text-xs sm:text-sm text-[#141212]"
+                    >
+                      {NAIL_SHAPES.map((shape) => (
+                        <option key={shape} value={shape}>
+                          {shape}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-[#554C4B]">
-                      Selected Time
-                    </p>
-                    <p className="font-mono tabular-nums text-base font-semibold text-[#141212] mt-1">
-                      {selectedTimeSlot}
-                    </p>
+                    <label className="block text-xs font-medium text-[#141212] mb-1.5">
+                      Shade / Finish
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={60}
+                      value={shadePreference}
+                      onChange={(e) => setShadePreference(e.target.value)}
+                      placeholder="e.g., Dusty Rose"
+                      className="w-full px-3.5 py-2.5 neu-input text-xs sm:text-sm text-[#141212]"
+                    />
                   </div>
                 </div>
+
+                {activeArtists.length > 1 && (
+                  <div>
+                    <label className="block text-xs font-medium text-[#141212] mb-1.5">
+                      Nail Artist
+                    </label>
+                    <select
+                      value={selectedArtist?.id || ''}
+                      onChange={(e) => setSelectedArtistId(e.target.value)}
+                      className="w-full px-3.5 py-2.5 neu-input text-xs sm:text-sm text-[#141212]"
+                    >
+                      {activeArtists.map((art) => (
+                        <option key={art.id} value={art.id}>
+                          {art.name} — {art.role}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Selected Date & Time Display (or picker) */}
+              {!editingDateTime && selectedDate && selectedTimeSlot ? (
+                <div className="neu-inset p-4 sm:p-5 flex items-center justify-between gap-3">
+                  <div className="grid grid-cols-2 gap-4 flex-1">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#554C4B]">
+                        Selected Date
+                      </p>
+                      <p className="font-mono tabular-nums text-sm sm:text-base font-semibold text-[#141212] mt-0.5">
+                        {selectedDate}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#554C4B]">
+                        Selected Time
+                      </p>
+                      <p className="font-mono tabular-nums text-sm sm:text-base font-semibold text-[#141212] mt-0.5">
+                        {selectedTimeSlot}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditingDateTime(true)}
+                    className="px-3 py-1.5 neu-btn text-xs font-medium text-[#141212] shrink-0 cursor-pointer"
+                  >
+                    Change
+                  </button>
+                </div>
               ) : (
-                <div className="neu-surface-sm p-5 space-y-4">
+                <div className="neu-surface-sm p-4 sm:p-5 space-y-4">
                   <div>
                     <label className="block text-xs font-medium text-[#141212] mb-1.5">
                       Date
@@ -308,7 +411,7 @@ export function BookingModal({
                     <input
                       type="date"
                       required
-                      min={new Date().toISOString().slice(0, 10)}
+                      min={getTodayIso()}
                       value={selectedDate}
                       onChange={(e) => {
                         setSelectedDate(e.target.value);
@@ -322,29 +425,38 @@ export function BookingModal({
                     <label className="block text-xs font-medium text-[#141212] mb-1.5">
                       Time Slot
                     </label>
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {STUDIO_TIME_SLOTS.map((slot) => {
-                        const isTaken = takenSlotsForDate.includes(slot);
-                        const active = selectedTimeSlot === slot;
-                        return (
-                          <button
-                            key={slot}
-                            type="button"
-                            disabled={isTaken}
-                            onClick={() => setSelectedTimeSlot(slot)}
-                            className={`py-2 px-2 text-xs font-mono tabular-nums ${
-                              isTaken
-                                ? 'neu-inset text-[#554C4B]/45 line-through cursor-not-allowed'
-                                : active
-                                  ? 'neu-btn-ink cursor-pointer'
-                                  : 'neu-btn text-[#141212] cursor-pointer'
-                            }`}
-                          >
-                            {slot}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    {dateScheduleInfo?.isClosed ? (
+                      <p className="neu-inset p-3.5 text-xs text-[#8E353B]">
+                        Studio is closed on this date. Please choose an open day.
+                      </p>
+                    ) : !dateScheduleInfo || dateScheduleInfo.clientVisibleSlots.length === 0 ? (
+                      <p className="neu-inset p-3.5 text-xs text-[#554C4B]">
+                        No open time slots available for this date.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2.5">
+                        {dateScheduleInfo.clientVisibleSlots.map(({ slot, isBooked }) => {
+                          const active = selectedTimeSlot === slot;
+                          return (
+                            <button
+                              key={slot}
+                              type="button"
+                              disabled={isBooked}
+                              onClick={() => setSelectedTimeSlot(slot)}
+                              className={`py-2 px-2 text-xs font-mono tabular-nums ${
+                                isBooked
+                                  ? 'neu-inset text-[#554C4B]/45 line-through cursor-not-allowed'
+                                  : active
+                                    ? 'neu-btn-ink cursor-pointer'
+                                    : 'neu-btn text-[#141212] cursor-pointer'
+                              }`}
+                            >
+                              {slot}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -422,6 +534,7 @@ export function BookingModal({
                 type="submit"
                 disabled={
                   submitting ||
+                  !selectedService ||
                   !selectedDate ||
                   !selectedTimeSlot ||
                   !clientName.trim() ||

@@ -1,15 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useStudio } from '../context/StudioContext';
-import type { ServiceCategory, ServiceItem } from '../types/studio';
-
-const CATEGORIES: ('All' | ServiceCategory)[] = [
-  'All',
-  'Gel-X & Extensions',
-  'BIAB & Builder',
-  'Signature Nail Art',
-  'Manicure & Spa',
-  'Add-Ons & Removal',
-];
+import type { ServiceItem } from '../types/studio';
 
 interface ServicesSectionProps {
   onBookService: (service: ServiceItem) => void;
@@ -17,13 +8,10 @@ interface ServicesSectionProps {
 
 export function ServicesSection({ onBookService }: ServicesSectionProps) {
   const { services } = useStudio();
-  const [selectedCategory, setSelectedCategory] = useState<'All' | ServiceCategory>('All');
 
   const visibleServices = useMemo(() => {
-    const active = services.filter((s) => s.active);
-    if (selectedCategory === 'All') return active;
-    return active.filter((s) => s.category === selectedCategory);
-  }, [services, selectedCategory]);
+    return services.filter((s) => s.active);
+  }, [services]);
 
   return (
     <section id="services" className="bg-[#F2ECEB]">
@@ -37,32 +25,6 @@ export function ServicesSection({ onBookService }: ServicesSectionProps) {
             <h2 className="font-['Playfair_Display'] text-2xl sm:text-4xl font-semibold text-[#141212]">
               Curated nail services and restorative care
             </h2>
-          </div>
-
-          <div
-            role="tablist"
-            aria-label="Filter services by category"
-            className="flex flex-wrap items-center gap-1.5 sm:gap-2 neu-inset p-1.5 w-full lg:w-auto"
-          >
-            {CATEGORIES.map((category) => {
-              const active = selectedCategory === category;
-              return (
-                <button
-                  key={category}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setSelectedCategory(category)}
-                  className={`px-3 sm:px-3.5 py-2 text-xs font-medium rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                    active
-                      ? 'neu-btn-ink'
-                      : 'text-[#554C4B] hover:text-[#141212]'
-                  }`}
-                >
-                  {category}
-                </button>
-              );
-            })}
           </div>
         </div>
 

@@ -657,6 +657,77 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "StudioSettings": {
+      "title": "StudioSettings",
+      "description": "Public studio configuration flags controlled by studio admin.",
+      "type": "object",
+      "properties": {
+        "loyaltyEnabled": {
+          "type": "boolean"
+        },
+        "careShopEnabled": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["loyaltyEnabled", "careShopEnabled", "updatedAt"]
+    },
+    "StudioScheduleSettings": {
+      "title": "StudioScheduleSettings",
+      "description": "Default studio open weekdays and per-weekday configurable appointment time slots controlled by admin.",
+      "type": "object",
+      "properties": {
+        "openWeekdays": {
+          "type": "array",
+          "description": "Weekday numbers (0=Sun..6=Sat) when studio is normally open"
+        },
+        "timeSlots": {
+          "type": "array",
+          "description": "Fallback default appointment time slots offered per day (max 24)"
+        },
+        "weekdaySlots": {
+          "type": "object",
+          "description": "Map of weekday index ('0'..'6') to that weekday's available time slot list (max 24 slots each)"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["openWeekdays", "timeSlots", "updatedAt"]
+    },
+    "DaySchedule": {
+      "title": "DaySchedule",
+      "description": "Admin-controlled open/closed status and slot overrides for a specific calendar date.",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "maxLength": 10
+        },
+        "dayStatus": {
+          "type": "string",
+          "enum": ["default", "open", "closed"]
+        },
+        "blockedSlots": {
+          "type": "array",
+          "description": "Time slots blocked by admin on this date (max 24)"
+        },
+        "extraSlots": {
+          "type": "array",
+          "description": "Additional custom time slots opened by admin for this date (max 24)"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["date", "dayStatus", "blockedSlots", "extraSlots", "updatedAt"]
     }
   },
   "firestore": {
@@ -707,6 +778,14 @@
     "/loyaltyCards/{cardId}": {
       "schema": { "$ref": "#/entities/LoyaltyCard" },
       "description": "Client 10-stamp studio loyalty card; readable by owner (matched by uid or verified email) or admin, stamps writable strictly by studio admin."
+    },
+    "/studioSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/StudioSettings" },
+      "description": "Public studio feature configuration flags and default schedule (studio, schedule); readable publicly, writable strictly by studio admin."
+    },
+    "/daySchedules/{dateId}": {
+      "schema": { "$ref": "#/entities/DaySchedule" },
+      "description": "Per-date studio open/closed status and time slot overrides; readable publicly, writable strictly by studio admin."
     }
   }
 }

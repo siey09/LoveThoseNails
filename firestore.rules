@@ -253,6 +253,54 @@ service cloud.firestore {
         && data.updatedAt is timestamp && data.updatedAt == request.time;
     }
 
+    function isValidStudioSettings(data) {
+      return data.keys().hasAll(['loyaltyEnabled', 'careShopEnabled', 'updatedAt'])
+        && data.keys().hasOnly(['loyaltyEnabled', 'careShopEnabled', 'updatedAt'])
+        && data.loyaltyEnabled is bool
+        && data.careShopEnabled is bool
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidTimeSlotList(slots) {
+      return slots is list
+        && slots.size() <= 24
+        && (slots.size() == 0 || (slots[0] is string && slots[0].size() >= 4 && slots[0].size() <= 12));
+    }
+
+    function isValidWeekdaySlotsMap(m) {
+      return m is map
+        && m.keys().hasOnly(['0', '1', '2', '3', '4', '5', '6'])
+        && (!('0' in m) || isValidTimeSlotList(m['0']))
+        && (!('1' in m) || isValidTimeSlotList(m['1']))
+        && (!('2' in m) || isValidTimeSlotList(m['2']))
+        && (!('3' in m) || isValidTimeSlotList(m['3']))
+        && (!('4' in m) || isValidTimeSlotList(m['4']))
+        && (!('5' in m) || isValidTimeSlotList(m['5']))
+        && (!('6' in m) || isValidTimeSlotList(m['6']));
+    }
+
+    function isValidStudioSchedule(data) {
+      return data.keys().hasAll(['openWeekdays', 'timeSlots', 'updatedAt'])
+        && data.keys().hasOnly(['openWeekdays', 'timeSlots', 'weekdaySlots', 'updatedAt'])
+        && data.openWeekdays is list && data.openWeekdays.size() <= 7
+        && (data.openWeekdays.size() == 0 || (data.openWeekdays[0] is number && data.openWeekdays[0] >= 0 && data.openWeekdays[0] <= 6))
+        && isValidTimeSlotList(data.timeSlots)
+        && (!('weekdaySlots' in data) || isValidWeekdaySlotsMap(data.weekdaySlots))
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    function isValidDaySchedule(data) {
+      return data.keys().hasAll(['date', 'dayStatus', 'blockedSlots', 'extraSlots', 'updatedAt'])
+        && data.keys().hasOnly(['date', 'dayStatus', 'blockedSlots', 'extraSlots', 'updatedAt'])
+        && data.date is string && data.date.size() == 10 && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.dayStatus in ['default', 'open', 'closed']
+        && data.blockedSlots is list && data.blockedSlots.size() <= 24
+        && (data.blockedSlots.size() == 0 || (data.blockedSlots[0] is string && data.blockedSlots[0].size() >= 4 && data.blockedSlots[0].size() <= 12))
+        && data.extraSlots is list && data.extraSlots.size() <= 24
+        && (data.extraSlots.size() == 0 || (data.extraSlots[0] is string && data.extraSlots[0].size() >= 4 && data.extraSlots[0].size() <= 12))
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
     // --- Collection Match Blocks ---
 
     // Public catalog: services (no PII)
@@ -502,6 +550,30 @@ service cloud.firestore {
         && incoming().cardCode == existing().cardCode
         && incoming().createdAt == existing().createdAt;
       allow delete: if isAdmin() && isValidId(cardId);
+    }
+
+    // Public studio configuration flags and default schedule (non-PII, strictly admin-writable)
+    match /studioSettings/{settingId} {
+      allow get: if isValidId(settingId) && (settingId == 'studio' || settingId == 'schedule');
+      allow list: if false;
+      allow create: if isAdmin() && isValidId(settingId) && (
+        (settingId == 'studio' && isValidStudioSettings(incoming())) ||
+        (settingId == 'schedule' && isValidStudioSchedule(incoming()))
+      );
+      allow update: if isAdmin() && isValidId(settingId) && (
+        (settingId == 'studio' && isValidStudioSettings(incoming())) ||
+        (settingId == 'schedule' && isValidStudioSchedule(incoming()))
+      );
+      allow delete: if false;
+    }
+
+    // Per-date studio open/closed and time slot overrides (non-PII, strictly admin-writable)
+    match /daySchedules/{dateId} {
+      allow get: if isValidId(dateId) && dateId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+      allow list: if resource.data.date is string;
+      allow create: if isAdmin() && isValidId(dateId) && dateId == incoming().date && isValidDaySchedule(incoming());
+      allow update: if isAdmin() && isValidId(dateId) && dateId == incoming().date && isValidDaySchedule(incoming());
+      allow delete: if isAdmin() && isValidId(dateId);
     }
   }
 }

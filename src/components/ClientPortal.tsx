@@ -14,7 +14,7 @@ export function ClientPortal({
 }: {
   onOpenBooking: (preset?: { date?: string; timeSlot?: string }) => void;
 }) {
-  const { user, authReady, retailOrders } = useStudio();
+  const { user, authReady, retailOrders, careShopEnabled } = useStudio();
 
   if (!authReady) {
     return (
@@ -45,6 +45,7 @@ export function ClientPortal({
       />
 
       {/* Retail Care Reservations */}
+      {(careShopEnabled || myOrders.length > 0) && (
       <div className="neu-surface p-5 sm:p-8 space-y-5">
         <div className="flex items-center justify-between pb-1">
           <h2 className="text-lg font-semibold text-[#141212]">
@@ -93,6 +94,7 @@ export function ClientPortal({
           </div>
         )}
       </div>
+      )}
     </section>
   );
 }

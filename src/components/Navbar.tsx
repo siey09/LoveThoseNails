@@ -8,17 +8,15 @@ export type ActivePage = 'studio' | 'gallery' | 'loyalty' | 'my-bookings' | 'adm
 interface NavbarProps {
   activePage: ActivePage;
   onNavigate: (page: ActivePage, sectionId?: string) => void;
-  onOpenBooking: () => void;
   onLogoDoubleTrigger: () => void;
 }
 
 export function Navbar({
   activePage,
   onNavigate,
-  onOpenBooking,
   onLogoDoubleTrigger,
 }: NavbarProps) {
-  const { cart, setIsBagOpen } = useStudio();
+  const { cart, setIsBagOpen, loyaltyEnabled, careShopEnabled } = useStudio();
   const [mobileOpen, setMobileOpen] = useState(false);
   const lastLogoTapRef = useRef<number>(0);
   const logoTapCountRef = useRef<number>(0);
@@ -82,13 +80,6 @@ export function Navbar({
           </button>
           <button
             type="button"
-            onClick={() => handleSectionLink('lookbook')}
-            className="hover:text-[#141212] hover:underline underline-offset-4 decoration-[#D2AAAB] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            Lookbook
-          </button>
-          <button
-            type="button"
             onClick={() => {
               setMobileOpen(false);
               onNavigate('gallery');
@@ -99,25 +90,29 @@ export function Navbar({
           >
             Gallery
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMobileOpen(false);
-              onNavigate('loyalty');
-            }}
-            className={`hover:text-[#141212] hover:underline underline-offset-4 decoration-[#D2AAAB] transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              activePage === 'loyalty' ? 'text-[#141212] underline' : ''
-            }`}
-          >
-            Loyalty Card
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSectionLink('care-shop')}
-            className="hover:text-[#141212] hover:underline underline-offset-4 decoration-[#D2AAAB] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            Care Shop{bagCount > 0 ? ` (${bagCount})` : ''}
-          </button>
+          {loyaltyEnabled && (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileOpen(false);
+                onNavigate('loyalty');
+              }}
+              className={`hover:text-[#141212] hover:underline underline-offset-4 decoration-[#D2AAAB] transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                activePage === 'loyalty' ? 'text-[#141212] underline' : ''
+              }`}
+            >
+              Loyalty Card
+            </button>
+          )}
+          {careShopEnabled && (
+            <button
+              type="button"
+              onClick={() => handleSectionLink('care-shop')}
+              className="hover:text-[#141212] hover:underline underline-offset-4 decoration-[#D2AAAB] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              Care Shop{bagCount > 0 ? ` (${bagCount})` : ''}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -134,7 +129,7 @@ export function Navbar({
 
         {/* Zone 3: 1 primary CTA button + mobile menu trigger */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {bagCount > 0 && (
+          {careShopEnabled && bagCount > 0 && (
             <button
               type="button"
               onClick={() => setIsBagOpen(true)}
@@ -147,7 +142,10 @@ export function Navbar({
           )}
           <button
             type="button"
-            onClick={onOpenBooking}
+            onClick={() => {
+              setMobileOpen(false);
+              onNavigate('my-bookings');
+            }}
             className="px-3.5 sm:px-5 min-h-[40px] py-2 sm:py-2.5 neu-btn-ink text-xs sm:text-sm font-medium whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#141212]"
           >
             <span className="sm:hidden">Book</span>
@@ -175,13 +173,6 @@ export function Navbar({
           </button>
           <button
             type="button"
-            onClick={() => handleSectionLink('lookbook')}
-            className="text-left px-3 min-h-[44px] flex items-center rounded-xl hover:bg-[#EBE3E2]"
-          >
-            Lookbook
-          </button>
-          <button
-            type="button"
             onClick={() => {
               setMobileOpen(false);
               onNavigate('gallery');
@@ -192,25 +183,29 @@ export function Navbar({
           >
             Gallery
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMobileOpen(false);
-              onNavigate('loyalty');
-            }}
-            className={`text-left px-3 min-h-[44px] flex items-center rounded-xl ${
-              activePage === 'loyalty' ? 'neu-inset font-semibold' : 'hover:bg-[#EBE3E2]'
-            }`}
-          >
-            Loyalty Card
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSectionLink('care-shop')}
-            className="text-left px-3 min-h-[44px] flex items-center rounded-xl hover:bg-[#EBE3E2]"
-          >
-            Care Shop{bagCount > 0 ? ` (${bagCount})` : ''}
-          </button>
+          {loyaltyEnabled && (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileOpen(false);
+                onNavigate('loyalty');
+              }}
+              className={`text-left px-3 min-h-[44px] flex items-center rounded-xl ${
+                activePage === 'loyalty' ? 'neu-inset font-semibold' : 'hover:bg-[#EBE3E2]'
+              }`}
+            >
+              Loyalty Card
+            </button>
+          )}
+          {careShopEnabled && (
+            <button
+              type="button"
+              onClick={() => handleSectionLink('care-shop')}
+              className="text-left px-3 min-h-[44px] flex items-center rounded-xl hover:bg-[#EBE3E2]"
+            >
+              Care Shop{bagCount > 0 ? ` (${bagCount})` : ''}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
