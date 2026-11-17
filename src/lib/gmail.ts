@@ -185,6 +185,8 @@ export async function sendStudioBookingEmail(params: {
 
   const htmlBody = buildBookingEmailHtml(type, appointment, readableDate);
   const rawMime = [
+    'From: Love Those Nails by Eshin <lovethosenailsbyeshin@gmail.com>',
+    'Reply-To: Love Those Nails by Eshin <lovethosenailsbyeshin@gmail.com>',
     `To: ${to}`,
     `Subject: ${encodeMimeSubject(subject)}`,
     'MIME-Version: 1.0',

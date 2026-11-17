@@ -28,7 +28,7 @@ import {
 import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { useStudio } from '../context/StudioContext';
 import { NAIL_SHAPES } from '../data/seedCatalog';
-import { PRIMARY_ADMIN_EMAILS } from '../lib/firebase';
+import { PRIMARY_ADMIN_EMAILS, STUDIO_EMAIL_SENDER } from '../lib/firebase';
 import { buildBookingEmailPreview } from '../lib/gmail';
 import { AdminBlogsPanel } from './AdminBlogsPanel';
 import { AdminCalendar } from './AdminCalendar';
@@ -292,7 +292,9 @@ export function AdminDashboard({
     setErrorNotice(null);
     try {
       await connectAdminGmail();
-      flashNotice('Gmail connected. Confirmation and cancellation emails are ready to send.');
+      flashNotice(
+        `Gmail connected (${STUDIO_EMAIL_SENDER}). Confirmation and cancellation emails will send from this studio account.`,
+      );
     } catch (err) {
       setErrorNotice(err instanceof Error ? err.message : 'Unable to connect Gmail account.');
     } finally {
@@ -713,6 +715,7 @@ export function AdminDashboard({
                 type="button"
                 disabled={connectingGmail}
                 onClick={handleConnectGmail}
+                title={`Emails are sent from ${STUDIO_EMAIL_SENDER}`}
                 className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-medium cursor-pointer disabled:opacity-50 ${
                   gmailConnected ? 'neu-btn text-[#16A34A]' : 'neu-btn-rose text-[#141212]'
                 }`}
@@ -723,7 +726,7 @@ export function AdminDashboard({
                     ? 'Connecting Gmail...'
                     : gmailConnected
                       ? 'Gmail Ready'
-                      : 'Connect Gmail'}
+                      : 'Connect Studio Gmail'}
                 </span>
               </button>
               {!catalogSynced && (
@@ -2101,7 +2104,7 @@ export function AdminDashboard({
                   <div className="flex items-start justify-between gap-3">
                     <span className="text-[#554C4B] shrink-0">From</span>
                     <span className="font-mono text-[#141212] text-right break-all">
-                      {user?.email}
+                      {STUDIO_EMAIL_SENDER}
                     </span>
                   </div>
                   <div className="flex items-start justify-between gap-3">
@@ -2126,9 +2129,14 @@ export function AdminDashboard({
                   </p>
                 </div>
 
-                {!gmailConnected && (
+                {(!gmailConnected ||
+                  user?.email?.trim().toLowerCase() !== STUDIO_EMAIL_SENDER) && (
                   <p className="text-[11px] text-[#554C4B] leading-relaxed">
-                    Sending via Gmail will request permission for this session.{' '}
+                    Sending via Gmail will request permission for{' '}
+                    <span className="font-mono font-medium text-[#141212]">
+                      {STUDIO_EMAIL_SENDER}
+                    </span>
+                    .{' '}
                     {!isAlreadyConfirmed &&
                       'You can also update the booking status immediately without sending an email.'}
                   </p>

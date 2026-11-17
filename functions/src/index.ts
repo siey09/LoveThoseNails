@@ -18,7 +18,7 @@ const SMTP_PORT = defineSecret('SMTP_PORT');
 const SMTP_USER = defineSecret('SMTP_USER');
 const SMTP_PASS = defineSecret('SMTP_PASS');
 const STUDIO_FROM_EMAIL = defineString('STUDIO_FROM_EMAIL', {
-  default: 'Love Those Nails by Eshin <bookings@lovethosenails.studio>',
+  default: 'Love Those Nails by Eshin <lovethosenailsbyeshin@gmail.com>',
 });
 const STUDIO_TIMEZONE = defineString('STUDIO_TIMEZONE', {
   default: 'America/Los_Angeles',

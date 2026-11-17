@@ -25,10 +25,12 @@ import {
   auth,
   BOOTSTRAP_ADMIN_EMAIL,
   db,
+  gmailSenderProvider,
   googleProvider,
   handleFirestoreError,
   isPrimaryAdminEmail,
   OperationType,
+  STUDIO_EMAIL_SENDER,
 } from '../lib/firebase';
 import {
   GmailAuthExpiredError,
@@ -354,11 +356,15 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (authReady && !isAdmin && !isGmailAuthInFlightRef.current) {
+    if (
+      authReady &&
+      (!isAdmin || user?.email?.trim().toLowerCase() !== STUDIO_EMAIL_SENDER) &&
+      !isGmailAuthInFlightRef.current
+    ) {
       cachedGmailAccessToken = null;
       setGmailConnected(false);
     }
-  }, [authReady, isAdmin]);
+  }, [authReady, isAdmin, user]);
 
   // Public catalog listeners (services, artists, retailProducts, active bookedSlots)
   useEffect(() => {
@@ -923,7 +929,9 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
           authorizedAdmin = false;
         }
       }
-      if (authorizedAdmin && token) {
+      const isDesignatedGmailSender =
+        result.user?.email?.trim().toLowerCase() === STUDIO_EMAIL_SENDER;
+      if (authorizedAdmin && isDesignatedGmailSender && token) {
         cachedGmailAccessToken = token;
         setGmailConnected(true);
       } else {
@@ -949,39 +957,46 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const connectAdminGmail = useCallback(async (): Promise<string> => {
-    const signedUser = await signInAdminWithGoogle();
-    if (!signedUser || !signedUser.emailVerified) {
-      throw new Error('Verified Google admin sign-in is required to connect Gmail.');
-    }
-    const isBootstrapEmail = isPrimaryAdminEmail(signedUser.email);
-    let authorizedAdmin = isBootstrapEmail;
-    if (!authorizedAdmin) {
-      try {
-        const snap = await getDoc(doc(db, 'admins', signedUser.uid));
-        if (snap.exists()) {
-          authorizedAdmin = true;
-        } else if (signedUser.email) {
-          const inviteSnap = await getDoc(
-            doc(db, 'adminInvites', signedUser.email.trim().toLowerCase()),
-          );
-          authorizedAdmin = inviteSnap.exists();
-        }
-      } catch {
-        authorizedAdmin = false;
+    isGmailAuthInFlightRef.current = true;
+    try {
+      const result = await signInWithPopup(auth, gmailSenderProvider);
+      const signedUser = result.user;
+      if (!signedUser || !signedUser.emailVerified) {
+        throw new Error(`Verified Google sign-in as ${STUDIO_EMAIL_SENDER} is required to send emails.`);
       }
+      if (signedUser.email?.trim().toLowerCase() !== STUDIO_EMAIL_SENDER) {
+        cachedGmailAccessToken = null;
+        setGmailConnected(false);
+        throw new Error(
+          `Studio emails must be sent from ${STUDIO_EMAIL_SENDER}. Signed in as ${signedUser.email || 'another account'} instead — please select ${STUDIO_EMAIL_SENDER} in the Google prompt.`,
+        );
+      }
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const token = credential?.accessToken ?? null;
+      if (!token) {
+        throw new Error(
+          'Gmail send permission was not granted. Please allow the "Send email on your behalf" permission when signing in.',
+        );
+      }
+      cachedGmailAccessToken = token;
+      setGmailConnected(true);
+      return token;
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      if (code === 'auth/popup-blocked') {
+        throw new Error('Google sign-in popup was blocked. Please allow popups for this site and try again.');
+      }
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        throw new Error('Gmail authorization was cancelled before completing.');
+      }
+      if (code === 'auth/unauthorized-domain') {
+        throw new Error('This domain is not authorized in Firebase Authentication settings yet.');
+      }
+      throw err;
+    } finally {
+      isGmailAuthInFlightRef.current = false;
     }
-    if (!authorizedAdmin) {
-      throw new Error(
-        'Please sign in with an authorized studio admin Google account to send emails.',
-      );
-    }
-    if (!cachedGmailAccessToken) {
-      throw new Error(
-        'Gmail send permission was not granted. Please allow the "Send email on your behalf" permission when signing in.',
-      );
-    }
-    return cachedGmailAccessToken;
-  }, [signInAdminWithGoogle]);
+  }, []);
 
   const signOutUser = useCallback(async () => {
     cachedGmailAccessToken = null;
@@ -1168,7 +1183,9 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     ): Promise<{ emailSent: boolean; messageId: string }> => {
       if (!isAdmin) throw new Error('Studio admin privileges required.');
 
-      let token = cachedGmailAccessToken;
+      const activeSenderMatches =
+        auth.currentUser?.email?.trim().toLowerCase() === STUDIO_EMAIL_SENDER;
+      let token = activeSenderMatches ? cachedGmailAccessToken : null;
       if (!token) {
         token = await connectAdminGmail();
       }

@@ -19,10 +19,20 @@ for (const scope of GMAIL_SCOPES) {
 adminGoogleProvider.setCustomParameters({ prompt: 'select_account consent' });
 
 export const BOOTSTRAP_ADMIN_EMAIL = 'sieyiphone07@gmail.com';
+export const STUDIO_EMAIL_SENDER = 'lovethosenailsbyeshin@gmail.com';
 export const PRIMARY_ADMIN_EMAILS = [
   'sieyiphone07@gmail.com',
   'lovethosenailsbyeshin@gmail.com',
 ] as const;
+
+export const gmailSenderProvider = new GoogleAuthProvider();
+for (const scope of GMAIL_SCOPES) {
+  gmailSenderProvider.addScope(scope);
+}
+gmailSenderProvider.setCustomParameters({
+  prompt: 'select_account consent',
+  login_hint: STUDIO_EMAIL_SENDER,
+});
 
 export function isPrimaryAdminEmail(email?: string | null): boolean {
   if (!email) return false;
