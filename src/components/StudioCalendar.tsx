@@ -34,14 +34,14 @@ export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
     dayOverrides,
   } = useStudio();
 
-  const now = new Date();
   const todayIso = getTodayIso();
 
-  const [viewYear, setViewYear] = useState(now.getFullYear());
-  const [viewMonth, setViewMonth] = useState(now.getMonth());
   const [selectedDate, setSelectedDate] = useState<string>(() =>
     getNextOpenDateIso(scheduleConfig, dayOverrides, bookedSlots),
   );
+  const initialDateObj = new Date(`${selectedDate}T12:00:00`);
+  const [viewYear, setViewYear] = useState(initialDateObj.getFullYear());
+  const [viewMonth, setViewMonth] = useState(initialDateObj.getMonth());
   const [userPickedDate, setUserPickedDate] = useState(false);
 
   const [isFlipped, setIsFlipped] = useState(false);
@@ -53,7 +53,11 @@ export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
     if (userPickedDate) return;
     const currentInfo = getDayScheduleInfo(selectedDate, scheduleConfig, dayOverrides, bookedSlots);
     if (currentInfo.isClosed || currentInfo.openCount === 0) {
-      setSelectedDate(getNextOpenDateIso(scheduleConfig, dayOverrides, bookedSlots));
+      const nextIso = getNextOpenDateIso(scheduleConfig, dayOverrides, bookedSlots);
+      setSelectedDate(nextIso);
+      const nextObj = new Date(`${nextIso}T12:00:00`);
+      setViewYear(nextObj.getFullYear());
+      setViewMonth(nextObj.getMonth());
     }
   }, [userPickedDate, selectedDate, scheduleConfig, dayOverrides, bookedSlots]);
 
@@ -113,6 +117,15 @@ export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
     }
   };
 
+  const handleJumpToday = () => {
+    const t = new Date();
+    const tIso = formatIsoDate(t.getFullYear(), t.getMonth(), t.getDate());
+    setViewYear(t.getFullYear());
+    setViewMonth(t.getMonth());
+    setUserPickedDate(true);
+    setSelectedDate(tIso);
+  };
+
   const selectedDayObj = new Date(`${selectedDate}T12:00:00`);
   const selectedIsPast = selectedDate < todayIso;
 
@@ -141,7 +154,23 @@ export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
               </h1>
             </div>
 
-            <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3">
+            <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-2.5">
+              {hasActiveBooking && (
+                <button
+                  type="button"
+                  onClick={() => setIsFlipped(true)}
+                  className="min-h-[40px] px-3 py-2 neu-btn-rose text-xs font-medium text-[#141212] cursor-pointer"
+                >
+                  My Booking ({activeBookings.length})
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleJumpToday}
+                className="min-h-[40px] px-3 py-2 neu-btn text-xs font-medium text-[#141212] cursor-pointer"
+              >
+                Today
+              </button>
               <button
                 type="button"
                 onClick={handlePrevMonth}
@@ -150,7 +179,7 @@ export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <span className="font-['Playfair_Display'] text-sm sm:text-base font-semibold text-[#141212] sm:min-w-[150px] text-center">
+              <span className="font-['Playfair_Display'] text-sm sm:text-base font-semibold text-[#141212] sm:min-w-[140px] text-center">
                 {monthLabel}
               </span>
               <button
@@ -222,30 +251,34 @@ export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
                       isSelected ? 'text-white/80' : 'text-[#554C4B]'
                     }`}
                   >
-                    {isClosed
-                      ? 'Closed'
-                      : isPast
-                        ? 'Past'
+                    {isPast
+                      ? 'Past'
+                      : isClosed
+                        ? 'Closed'
                         : hasMyBooking
                           ? 'Booked'
-                          : remaining === 0
-                            ? 'Full'
-                            : `${remaining} open`}
+                          : remaining > 0
+                            ? `${remaining} open`
+                            : dayInfo.clientVisibleSlots.length > 0
+                              ? 'Full'
+                              : 'No slots'}
                   </span>
                   <span
                     className={`sm:hidden text-[9px] font-mono tabular-nums leading-none mt-1 ${
                       isSelected ? 'text-white/85' : 'text-[#554C4B]'
                     }`}
                   >
-                    {isClosed
-                      ? 'Off'
-                      : isPast
-                        ? '—'
+                    {isPast
+                      ? '—'
+                      : isClosed
+                        ? 'Off'
                         : hasMyBooking
                           ? 'You'
-                          : remaining === 0
-                            ? 'Full'
-                            : `${remaining}`}
+                          : remaining > 0
+                            ? `${remaining}`
+                            : dayInfo.clientVisibleSlots.length > 0
+                              ? 'Full'
+                              : 'Off'}
                   </span>
                 </button>
               );
@@ -339,13 +372,22 @@ export function StudioCalendar({ onSelectSlot }: StudioCalendarProps) {
             !isFlipped ? 'pointer-events-none' : ''
           }`}
         >
-          <div className="space-y-1 pb-1">
-            <p className="text-xs uppercase tracking-[0.18em] text-[#554C4B]">
-              Love Those Nails by Eshin
-            </p>
-            <h2 className="font-['Playfair_Display'] text-2xl sm:text-3xl font-semibold text-[#141212]">
-              {hasPendingBooking ? 'Booking Confirmation Status' : 'Your Booking Is Accepted'}
-            </h2>
+          <div className="flex flex-wrap items-start justify-between gap-3 pb-1">
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-[0.18em] text-[#554C4B]">
+                Love Those Nails by Eshin
+              </p>
+              <h2 className="font-['Playfair_Display'] text-2xl sm:text-3xl font-semibold text-[#141212]">
+                {hasPendingBooking ? 'Booking Confirmation Status' : 'Your Booking Is Accepted'}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsFlipped(false)}
+              className="px-3.5 py-2 neu-btn text-xs font-medium text-[#141212] cursor-pointer shrink-0"
+            >
+              View Calendar
+            </button>
           </div>
 
           <div className="neu-divider" />

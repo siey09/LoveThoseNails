@@ -728,6 +728,83 @@
         }
       },
       "required": ["date", "dayStatus", "blockedSlots", "extraSlots", "updatedAt"]
+    },
+    "BlogPost": {
+      "title": "BlogPost",
+      "description": "Studio editorial blog articles and nail care guides managed by admin.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Nail Care & Health",
+            "Seasonal Trends",
+            "Aftercare Guide",
+            "Studio Stories",
+            "Behind the Chair"
+          ]
+        },
+        "excerpt": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 320
+        },
+        "content": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 8000
+        },
+        "coverImageUrl": {
+          "type": "string",
+          "maxLength": 350000
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "readTimeMin": {
+          "type": "number"
+        },
+        "featured": {
+          "type": "boolean"
+        },
+        "published": {
+          "type": "boolean"
+        },
+        "authorId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "title",
+        "category",
+        "excerpt",
+        "content",
+        "coverImageUrl",
+        "authorName",
+        "readTimeMin",
+        "featured",
+        "published",
+        "authorId",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -786,6 +863,10 @@
     "/daySchedules/{dateId}": {
       "schema": { "$ref": "#/entities/DaySchedule" },
       "description": "Per-date studio open/closed status and time slot overrides; readable publicly, writable strictly by studio admin."
+    },
+    "/blogPosts/{postId}": {
+      "schema": { "$ref": "#/entities/BlogPost" },
+      "description": "Editorial blog articles and care guides; published articles readable publicly, drafts and all writes strictly admin-only."
     }
   }
 }

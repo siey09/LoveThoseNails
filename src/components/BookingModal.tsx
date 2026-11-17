@@ -104,8 +104,23 @@ export function BookingModal({
       setErrorMsg('Please select a treatment, date, and time slot.');
       return;
     }
+    if (selectedDate < getTodayIso() || dateScheduleInfo?.isPastDate) {
+      setErrorMsg('Please choose today or an upcoming date.');
+      return;
+    }
     if (dateScheduleInfo?.isClosed) {
       setErrorMsg('The studio is closed on this date. Please select another open date.');
+      return;
+    }
+    const matchingSlot = dateScheduleInfo?.adminSlots.find((s) => s.slot === selectedTimeSlot);
+    if (!matchingSlot || !matchingSlot.isAvailable) {
+      setErrorMsg(
+        matchingSlot?.isBooked
+          ? 'That time slot was just booked. Please pick another available time.'
+          : matchingSlot?.isPastTime
+            ? 'That time slot has already passed today. Please pick an upcoming time.'
+            : 'That time slot is no longer available. Please choose another time.',
+      );
       return;
     }
     setErrorMsg('');
@@ -425,7 +440,11 @@ export function BookingModal({
                     <label className="block text-xs font-medium text-[#141212] mb-1.5">
                       Time Slot
                     </label>
-                    {dateScheduleInfo?.isClosed ? (
+                    {dateScheduleInfo?.isPastDate ? (
+                      <p className="neu-inset p-3.5 text-xs text-[#8E353B]">
+                        That date has already passed. Please choose today or an upcoming date.
+                      </p>
+                    ) : dateScheduleInfo?.isClosed ? (
                       <p className="neu-inset p-3.5 text-xs text-[#8E353B]">
                         Studio is closed on this date. Please choose an open day.
                       </p>
@@ -435,16 +454,17 @@ export function BookingModal({
                       </p>
                     ) : (
                       <div className="grid grid-cols-3 gap-2.5">
-                        {dateScheduleInfo.clientVisibleSlots.map(({ slot, isBooked }) => {
-                          const active = selectedTimeSlot === slot;
+                        {dateScheduleInfo.clientVisibleSlots.map(({ slot, isBooked, isPastTime }) => {
+                          const unavailable = isBooked || isPastTime;
+                          const active = selectedTimeSlot === slot && !unavailable;
                           return (
                             <button
                               key={slot}
                               type="button"
-                              disabled={isBooked}
+                              disabled={unavailable}
                               onClick={() => setSelectedTimeSlot(slot)}
                               className={`py-2 px-2 text-xs font-mono tabular-nums ${
-                                isBooked
+                                unavailable
                                   ? 'neu-inset text-[#554C4B]/45 line-through cursor-not-allowed'
                                   : active
                                     ? 'neu-btn-ink cursor-pointer'

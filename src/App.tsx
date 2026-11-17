@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { BagDrawer } from './components/BagDrawer';
+import { BlogsPage } from './components/BlogsPage';
 import { BookingModal, type BookingModalInitialState } from './components/BookingModal';
 import { ClientPortal } from './components/ClientPortal';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -24,12 +25,17 @@ function StudioShell() {
   const [activePage, setActivePage] = useState<ActivePage>('studio');
   const [bookingOpen, setBookingOpen] = useState(false);
   const [adminLoginOpen, setAdminLoginOpen] = useState(false);
+  const [pendingBookingPreset, setPendingBookingPreset] = useState<
+    BookingModalInitialState | undefined
+  >(undefined);
   const [bookingInitial, setBookingInitial] = useState<BookingModalInitialState | undefined>(
     undefined,
   );
 
   const openBooking = (preset?: BookingModalInitialState) => {
-    setBookingInitial(preset);
+    const merged: BookingModalInitialState | undefined =
+      pendingBookingPreset || preset ? { ...pendingBookingPreset, ...preset } : undefined;
+    setBookingInitial(merged);
     setBookingOpen(true);
   };
 
@@ -43,6 +49,15 @@ function StudioShell() {
     } else {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+  };
+
+  const handleBookRoute = (preset?: BookingModalInitialState) => {
+    if (preset?.date && preset?.timeSlot) {
+      openBooking(preset);
+      return;
+    }
+    setPendingBookingPreset(preset);
+    handleNavigate('my-bookings');
   };
 
   const handleLogoDoubleTrigger = () => {
@@ -65,32 +80,41 @@ function StudioShell() {
         {activePage === 'studio' && (
           <>
             <HeroSection
-              onOpenBooking={(preset) => openBooking(preset)}
+              onOpenBooking={(preset) => handleBookRoute(preset)}
               onExploreServices={() => handleNavigate('studio', 'services')}
             />
             <ServicesSection
-              onBookService={(service) => openBooking({ service })}
+              onBookService={(service) => handleBookRoute({ service })}
             />
             {careShopEnabled && <RetailSection />}
           </>
         )}
 
         {activePage === 'gallery' && (
-          <GalleryPage onOpenBooking={(preset) => openBooking(preset)} />
+          <GalleryPage onOpenBooking={(preset) => handleBookRoute(preset)} />
+        )}
+
+        {activePage === 'blogs' && (
+          <BlogsPage onOpenBooking={(preset) => handleBookRoute(preset)} />
         )}
 
         {activePage === 'loyalty' && (
-          <LoyaltyPage onOpenBooking={() => openBooking()} />
+          <LoyaltyPage onOpenBooking={() => handleBookRoute()} />
         )}
 
         {activePage === 'my-bookings' && (
-          <ClientPortal onOpenBooking={(preset) => openBooking(preset)} />
+          <ClientPortal
+            onOpenBooking={(preset) => openBooking(preset)}
+            pendingPreset={pendingBookingPreset}
+            onClearPreset={() => setPendingBookingPreset(undefined)}
+          />
         )}
 
         {activePage === 'admin' && (
           <AdminDashboard
             onBackToStudio={() => handleNavigate('studio')}
             onOpenGallery={() => handleNavigate('gallery')}
+            onOpenBlogs={() => handleNavigate('blogs')}
             onOpenAdminLogin={() => setAdminLoginOpen(true)}
           />
         )}
@@ -98,13 +122,16 @@ function StudioShell() {
 
       <Footer
         onNavigate={handleNavigate}
-        onOpenBooking={() => openBooking()}
+        onOpenBooking={() => handleBookRoute()}
       />
 
       <BookingModal
         isOpen={bookingOpen}
         initial={bookingInitial}
-        onClose={() => setBookingOpen(false)}
+        onClose={() => {
+          setBookingOpen(false);
+          setPendingBookingPreset(undefined);
+        }}
         onViewBookings={() => handleNavigate('my-bookings')}
       />
 

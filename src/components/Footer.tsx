@@ -49,6 +49,13 @@ export function Footer({ onNavigate, onOpenBooking }: FooterProps) {
               >
                 Recent Work Gallery
               </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('blogs')}
+                className="hover:text-[#141212] cursor-pointer"
+              >
+                Studio Journal &amp; Blogs
+              </button>
               {loyaltyEnabled && (
                 <button
                   type="button"

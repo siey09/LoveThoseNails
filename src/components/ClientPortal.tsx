@@ -1,5 +1,7 @@
+import { X } from 'lucide-react';
 import { useStudio } from '../context/StudioContext';
 import type { RetailOrderStatus } from '../types/studio';
+import type { BookingModalInitialState } from './BookingModal';
 import { StudioCalendar } from './StudioCalendar';
 
 const ORDER_STATUS_META: Record<RetailOrderStatus, { label: string; style: string }> = {
@@ -11,10 +13,39 @@ const ORDER_STATUS_META: Record<RetailOrderStatus, { label: string; style: strin
 
 export function ClientPortal({
   onOpenBooking,
+  pendingPreset,
+  onClearPreset,
 }: {
   onOpenBooking: (preset?: { date?: string; timeSlot?: string }) => void;
+  pendingPreset?: BookingModalInitialState;
+  onClearPreset?: () => void;
 }) {
   const { user, authReady, retailOrders, careShopEnabled } = useStudio();
+
+  const presetBanner =
+    pendingPreset?.service || pendingPreset?.lookbook ? (
+      <div className="neu-surface-sm px-4 py-3.5 sm:px-5 flex items-center justify-between gap-3">
+        <div className="text-xs sm:text-sm text-[#141212]">
+          <span className="font-semibold text-[#8A5A5C]">Selected: </span>
+          {pendingPreset.service
+            ? `${pendingPreset.service.name} ($${pendingPreset.service.price})`
+            : pendingPreset.lookbook
+              ? `${pendingPreset.lookbook.shape} · ${pendingPreset.lookbook.shadeName}`
+              : ''}
+          <span className="text-[#554C4B]"> — pick an open date and time slot below to book.</span>
+        </div>
+        {onClearPreset && (
+          <button
+            type="button"
+            onClick={onClearPreset}
+            aria-label="Clear selected treatment"
+            className="p-1.5 neu-btn text-[#554C4B] hover:text-[#141212] cursor-pointer shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+    ) : null;
 
   if (!authReady) {
     return (
@@ -28,7 +59,8 @@ export function ClientPortal({
 
   if (!user) {
     return (
-      <section className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-12 py-8 sm:py-12">
+      <section className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-12 py-8 sm:py-12 space-y-5">
+        {presetBanner}
         <StudioCalendar
           onSelectSlot={(date, timeSlot) => onOpenBooking({ date, timeSlot })}
         />
@@ -40,6 +72,7 @@ export function ClientPortal({
 
   return (
     <section className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-12 py-8 sm:py-12 space-y-8 sm:space-y-10">
+      {presetBanner}
       <StudioCalendar
         onSelectSlot={(date, timeSlot) => onOpenBooking({ date, timeSlot })}
       />

@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   Award,
+  BookOpen,
   Calendar,
   CalendarCheck,
   Check,
@@ -27,6 +28,7 @@ import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { useStudio } from '../context/StudioContext';
 import { NAIL_SHAPES } from '../data/seedCatalog';
 import { buildBookingEmailPreview } from '../lib/gmail';
+import { AdminBlogsPanel } from './AdminBlogsPanel';
 import { AdminCalendar } from './AdminCalendar';
 import type {
   Appointment,
@@ -38,13 +40,14 @@ import type {
   ServiceCategory,
 } from '../types/studio';
 
+type AdminTab = 'appointments' | 'calendar' | 'gallery' | 'blogs' | 'loyalty' | 'catalog';
+
 interface AdminDashboardProps {
   onBackToStudio: () => void;
   onOpenGallery: () => void;
+  onOpenBlogs: () => void;
   onOpenAdminLogin: () => void;
 }
-
-type AdminTab = 'appointments' | 'calendar' | 'gallery' | 'loyalty' | 'catalog';
 
 const SERVICE_CATEGORIES: ServiceCategory[] = [
   'Gel-X & Extensions',
@@ -123,6 +126,7 @@ async function compressImageFile(file: File): Promise<string> {
 export function AdminDashboard({
   onBackToStudio,
   onOpenGallery,
+  onOpenBlogs,
   onOpenAdminLogin,
 }: AdminDashboardProps) {
   const {
@@ -136,6 +140,7 @@ export function AdminDashboard({
     appointments,
     emailLogs,
     galleryPosts,
+    blogPosts,
     allLoyaltyCards,
     loyaltyEnabled,
     careShopEnabled,
@@ -746,7 +751,7 @@ export function AdminDashboard({
           <div className="neu-divider" />
 
           {/* Summary Metrics */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <div className="neu-inset p-4 space-y-1">
               <p className="text-[11px] uppercase tracking-[0.14em] text-[#554C4B]">
                 Active Bookings
@@ -761,6 +766,14 @@ export function AdminDashboard({
               </p>
               <p className="font-mono text-2xl font-semibold text-[#141212] tabular-nums">
                 {galleryPosts.length}
+              </p>
+            </div>
+            <div className="neu-inset p-4 space-y-1">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-[#554C4B]">
+                Blog Articles
+              </p>
+              <p className="font-mono text-2xl font-semibold text-[#141212] tabular-nums">
+                {blogPosts.length}
               </p>
             </div>
             <div className="neu-inset p-4 space-y-1">
@@ -780,6 +793,7 @@ export function AdminDashboard({
                 { id: 'appointments', label: 'Appointments', icon: CalendarCheck },
                 { id: 'calendar', label: 'Calendar', icon: Calendar },
                 { id: 'gallery', label: 'Gallery Posts', icon: ImageIcon },
+                { id: 'blogs', label: 'Blogs', icon: BookOpen },
                 { id: 'loyalty', label: 'Loyalty Cards', icon: Award },
                 { id: 'catalog', label: 'Services & Shop', icon: Sparkles },
               ] as const
@@ -789,8 +803,6 @@ export function AdminDashboard({
                 type="button"
                 onClick={() => setActiveTab(id)}
                 className={`inline-flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-4 py-2.5 sm:py-2 text-xs font-medium rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-                  id === 'catalog' ? 'col-span-2 sm:col-span-1' : ''
-                } ${
                   activeTab === id ? 'neu-btn-ink' : 'text-[#554C4B] hover:text-[#141212]'
                 }`}
               >
@@ -1124,7 +1136,16 @@ export function AdminDashboard({
           </div>
         )}
 
-        {/* TAB 3: Loyalty Cards Manager */}
+        {/* TAB 4: Studio Blogs Manager */}
+        {activeTab === 'blogs' && (
+          <AdminBlogsPanel
+            onOpenBlogs={onOpenBlogs}
+            flashNotice={flashNotice}
+            setErrorNotice={setErrorNotice}
+          />
+        )}
+
+        {/* TAB 5: Loyalty Cards Manager */}
         {activeTab === 'loyalty' && (
           <div className="neu-surface p-5 sm:p-8 space-y-6">
             <div className="neu-inset p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

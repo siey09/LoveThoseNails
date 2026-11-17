@@ -1,5 +1,6 @@
 import type {
   ArtistItem,
+  BlogPost,
   BookingAddon,
   NailShape,
   RetailProduct,
@@ -212,3 +213,94 @@ export const SEED_RETAIL: Omit<RetailProduct, 'updatedAt'>[] = [
     active: true,
   },
 ];
+
+export const STUDIO_BLOG_COVERS = [
+  {
+    label: 'BIAB Ritual',
+    url: '/assets/blog/blog_biab_ritual.jpg',
+  },
+  {
+    label: 'Korean Syrup Set',
+    url: '/assets/blog/blog_syrup_manicure.jpg',
+  },
+  {
+    label: 'Cuticle Apothecary',
+    url: '/assets/blog/blog_cuticle_care.jpg',
+  },
+];
+
+export const SEED_BLOGS: Omit<BlogPost, 'createdAt' | 'updatedAt'>[] = [
+  {
+    id: 'blog_korean_biab_recovery',
+    title: 'Why Korean BIAB Is Changing Natural Nail Recovery',
+    category: 'Nail Care & Health',
+    excerpt:
+      'How breathable builder-in-a-bottle overlays protect thin, peeling nail plates while building glassy, natural-looking strength over four weeks.',
+    content: `Healthy natural length rarely happens overnight. For clients transitioning away from harsh acrylics or chronic nail biting, the biggest hurdle is preventing mid-week corner splits while your fresh keratin grows out.
+
+## Precision Prep Before Pigment
+Every BIAB session at Love Those Nails begins with gentle Russian dry cuticle refinement. By clearing non-living eponychium tissue without water soaking, the nail plate stays dry and stable—allowing thin builder gel layers to bond cleanly with zero premature lifting.
+
+> Strength should feel weightless on the nail bed, never bulky or rigid at the free edge.
+
+## Structured Apex Balance
+Instead of flooding the entire nail thickly, we float a micro-apex at the stress zone and taper into an ultra-sheer cuticle edge. As your nails grow out over three to four weeks, the transition stays seamless and snag-free.
+
+## Keeping Your Overlay Radiant
+Pair your appointment with nightly jojoba and rosehip cuticle oil. Hydrated skin around the proximal fold keeps natural keratin flexible and prevents hairline lifting around the edges.`,
+    coverImageUrl: '/assets/blog/blog_biab_ritual.jpg',
+    authorName: 'Eshin',
+    readTimeMin: 4,
+    featured: true,
+    published: true,
+    authorId: 'studio_seed',
+  },
+  {
+    id: 'blog_syrup_jelly_palette',
+    title: 'Translucent Syrup Gels: The Quiet Luxury Color Edit',
+    category: 'Seasonal Trends',
+    excerpt:
+      'Inside our studio palette of milky alabaster, dusty rosewater, and toasted espresso jellies designed to flatter every skin undertone.',
+    content: `Opaques make a statement, but translucent syrup gels bring something softer to the hands—depth that shifts naturally in sunlight and catches studio warmth like tinted glass.
+
+## Layering Sheer Depth
+Unlike single-coat creams that can look flat or chalky near the cuticle, Korean syrup pigments are built in two to three gossamer passes. Each thin cure deepens the blush heart of the nail while keeping the lunula soft and diffused.
+
+> The secret to effortless neutral nails is choosing a rose tone one shade warmer than your natural nail bed.
+
+## Pairing Finishes Without Clutter
+Dusty Rose syrup pairs effortlessly with a micro-fine pearl chrome glaze or an ultra-thin French tip. Whether you prefer clean short ovals or tapered almonds, sheer finishes grow out gracefully past week three.`,
+    coverImageUrl: '/assets/blog/blog_syrup_manicure.jpg',
+    authorName: 'Eshin',
+    readTimeMin: 3,
+    featured: false,
+    published: true,
+    authorId: 'studio_seed',
+  },
+  {
+    id: 'blog_aftercare_rituals',
+    title: 'Five Daily Rituals to Make Your Gel-X Set Last Four Weeks',
+    category: 'Aftercare Guide',
+    excerpt:
+      'Simple daily habits—from glass filing to glove-first dishwashing—that keep glossy retention crisp between studio visits.',
+    content: `Fresh salon craftsmanship does half the work; small everyday habits after you leave the chair determine whether your set looks newly cured on day twenty-five.
+
+## 1. Oil Before Bed, Not Before Booking
+Applying a drop of botanical cuticle oil before sleep nourishes the nail matrix and keeps sidewalls supple. Avoid heavy hand balms immediately prior to an infill appointment so our prep remains oil-free.
+
+## 2. Never Use Nails as Tools
+Popping soda tabs, peeling shipping labels, or prying lids places sudden torque directly on the stress point. Keep a small card or opener handy so your apex stays intact.
+
+## 3. Gloves for Hot Water & Cleansers
+Extended soaking in hot dishwater causes natural keratin to expand and contract underneath cured gel. Slipping on cotton-lined gloves preserves high-gloss topcoat shine and cuticle seal.
+
+> Never peel or force off lifted gel—schedule a 30-minute steam soak-off to keep natural keratin intact.`,
+    coverImageUrl: '/assets/blog/blog_cuticle_care.jpg',
+    authorName: 'Eshin',
+    readTimeMin: 4,
+    featured: false,
+    published: true,
+    authorId: 'studio_seed',
+  },
+];
+

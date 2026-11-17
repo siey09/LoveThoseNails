@@ -227,3 +227,27 @@ export interface DayScheduleOverride {
   extraSlots: string[];
   updatedAt?: unknown;
 }
+
+export type BlogCategory =
+  | 'Nail Care & Health'
+  | 'Seasonal Trends'
+  | 'Aftercare Guide'
+  | 'Studio Stories'
+  | 'Behind the Chair';
+
+export interface BlogPost {
+  id: string;
+  title: string;
+  category: BlogCategory;
+  excerpt: string;
+  content: string;
+  coverImageUrl: string;
+  authorName: string;
+  readTimeMin: number;
+  featured: boolean;
+  published: boolean;
+  authorId: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+

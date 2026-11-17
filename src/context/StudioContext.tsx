@@ -34,12 +34,14 @@ import {
   sendStudioBookingEmail,
   type BookingEmailType,
 } from '../lib/gmail';
-import { SEED_ARTISTS, SEED_RETAIL, SEED_SERVICES } from '../data/seedCatalog';
+import { SEED_ARTISTS, SEED_BLOGS, SEED_RETAIL, SEED_SERVICES } from '../data/seedCatalog';
 import { DEFAULT_STUDIO_SCHEDULE, sortTimeSlots } from '../lib/schedule';
 import type {
   Appointment,
   AppointmentStatus,
   ArtistItem,
+  BlogCategory,
+  BlogPost,
   BookedSlot,
   CartItem,
   DayOverrideStatus,
@@ -158,6 +160,34 @@ interface StudioContextValue {
     },
   ) => Promise<void>;
   adminDeleteGalleryPost: (postId: string) => Promise<void>;
+  blogPosts: BlogPost[];
+  adminCreateBlogPost: (post: {
+    title: string;
+    category: BlogCategory;
+    excerpt: string;
+    content: string;
+    coverImageUrl: string;
+    authorName: string;
+    readTimeMin: number;
+    featured: boolean;
+    published: boolean;
+  }) => Promise<BlogPost>;
+  adminUpdateBlogPost: (
+    postId: string,
+    updates: {
+      title: string;
+      category: BlogCategory;
+      excerpt: string;
+      content: string;
+      coverImageUrl: string;
+      authorName: string;
+      readTimeMin: number;
+      featured: boolean;
+      published: boolean;
+    },
+  ) => Promise<void>;
+  adminDeleteBlogPost: (postId: string) => Promise<void>;
+  adminSeedStarterBlogs: () => Promise<void>;
   loyaltyCard: LoyaltyCard | null;
   allLoyaltyCards: LoyaltyCard[];
   loyaltyEnabled: boolean;
@@ -226,6 +256,14 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   const [retailOrders, setRetailOrders] = useState<RetailOrder[]>([]);
   const [posTransactions, setPosTransactions] = useState<PosTransaction[]>([]);
   const [galleryPosts, setGalleryPosts] = useState<GalleryPost[]>([]);
+  const [remoteBlogs, setRemoteBlogs] = useState<BlogPost[] | null>(null);
+  const [blogsCleared, setBlogsCleared] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('ltn_blogs_cleared_v1') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [loyaltyCard, setLoyaltyCard] = useState<LoyaltyCard | null>(null);
   const [allLoyaltyCards, setAllLoyaltyCards] = useState<LoyaltyCard[]>([]);
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(true);
@@ -238,6 +276,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isBagOpen, setIsBagOpen] = useState(false);
   const seededOnceRef = useRef(false);
+  const seededBlogsOnceRef = useRef(false);
   const isGmailAuthInFlightRef = useRef(false);
   const loyaltyEnabledRef = useRef(true);
   const careShopEnabledRef = useRef(false);
@@ -493,6 +532,82 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     }
   }, [authReady, isAdmin, remoteServices, seedCatalogToFirestore]);
 
+  // Blog posts real-time listener (public sees published; admin sees published + drafts)
+  useEffect(() => {
+    const blogQuery =
+      authReady && isAdmin
+        ? collection(db, 'blogPosts')
+        : query(collection(db, 'blogPosts'), where('published', '==', true));
+
+    const toMs = (ts: unknown): number => {
+      if (!ts) return 0;
+      const obj = ts as { toMillis?: () => number; seconds?: number };
+      if (typeof obj.toMillis === 'function') return obj.toMillis();
+      if (typeof obj.seconds === 'number') return obj.seconds * 1000;
+      return 0;
+    };
+
+    const unsubBlogs = onSnapshot(
+      blogQuery,
+      (snap) => {
+        const list = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<BlogPost, 'id'>),
+        }));
+        list.sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
+        setRemoteBlogs(list);
+      },
+      (err) => {
+        console.warn('Blog posts listener notice:', err.message);
+        setRemoteBlogs((prev) => prev ?? []);
+      },
+    );
+
+    return () => unsubBlogs();
+  }, [authReady, isAdmin]);
+
+  const adminSeedStarterBlogs = useCallback(async () => {
+    const activeUser = user ?? auth.currentUser;
+    if (!activeUser || !isAdmin) throw new Error('Studio owner sign-in required.');
+    try {
+      const batch = writeBatch(db);
+      for (const post of SEED_BLOGS) {
+        const { id, ...rest } = post;
+        batch.set(doc(db, 'blogPosts', id), {
+          ...rest,
+          authorId: activeUser.uid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+      await batch.commit();
+      setBlogsCleared(false);
+      try {
+        window.localStorage.removeItem('ltn_blogs_cleared_v1');
+      } catch {
+        // Ignore storage errors
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'blogPosts');
+    }
+  }, [user, isAdmin]);
+
+  useEffect(() => {
+    if (
+      authReady &&
+      isAdmin &&
+      remoteBlogs !== null &&
+      remoteBlogs.length === 0 &&
+      !blogsCleared &&
+      !seededBlogsOnceRef.current
+    ) {
+      seededBlogsOnceRef.current = true;
+      adminSeedStarterBlogs().catch(() => {
+        seededBlogsOnceRef.current = false;
+      });
+    }
+  }, [authReady, isAdmin, remoteBlogs, blogsCleared, adminSeedStarterBlogs]);
+
   // Authenticated listeners: user profile, appointments, retailOrders, and admin POS ledger
   useEffect(() => {
     if (!authReady || !user) {
@@ -695,6 +810,12 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     () => (remoteRetail && remoteRetail.length > 0 ? remoteRetail : SEED_RETAIL),
     [remoteRetail],
   );
+
+  const blogPosts = useMemo(() => {
+    if (remoteBlogs && remoteBlogs.length > 0) return remoteBlogs;
+    if (remoteBlogs !== null && remoteBlogs.length === 0 && blogsCleared) return [];
+    return isAdmin ? SEED_BLOGS : SEED_BLOGS.filter((b) => b.published);
+  }, [remoteBlogs, blogsCleared, isAdmin]);
 
   const catalogSynced = Boolean(remoteServices && remoteServices.length > 0);
 
@@ -1414,6 +1535,177 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     [isAdmin],
   );
 
+  const adminCreateBlogPost = useCallback(
+    async (post: {
+      title: string;
+      category: BlogCategory;
+      excerpt: string;
+      content: string;
+      coverImageUrl: string;
+      authorName: string;
+      readTimeMin: number;
+      featured: boolean;
+      published: boolean;
+    }): Promise<BlogPost> => {
+      const activeUser = user ?? auth.currentUser;
+      if (!activeUser || !isAdmin) throw new Error('Studio owner sign-in is required to publish blog articles.');
+      const postId = generateId('blog');
+      const title = clampStr(post.title, 120);
+      const excerpt = clampStr(post.excerpt, 320);
+      const content = post.content.trim().slice(0, 8000);
+      const coverImageUrl = post.coverImageUrl.trim().slice(0, 350000);
+      if (title.length < 2) throw new Error('Blog title must be at least 2 characters.');
+      if (excerpt.length < 10) throw new Error('Summary / excerpt must be at least 10 characters.');
+      if (content.length < 20) throw new Error('Article body must be at least 20 characters.');
+
+      const payload = {
+        title,
+        category: post.category,
+        excerpt,
+        content,
+        coverImageUrl,
+        authorName: clampStr(post.authorName || 'Eshin', 80),
+        readTimeMin: Math.min(60, Math.max(1, Math.round(Number(post.readTimeMin) || 3))),
+        featured: Boolean(post.featured),
+        published: Boolean(post.published),
+        authorId: activeUser.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      try {
+        await setDoc(doc(db, 'blogPosts', postId), payload);
+        setBlogsCleared(false);
+        try {
+          window.localStorage.removeItem('ltn_blogs_cleared_v1');
+        } catch {
+          // Ignore storage errors
+        }
+        return { id: postId, ...payload };
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `blogPosts/${postId}`);
+      }
+    },
+    [user, isAdmin],
+  );
+
+  const adminUpdateBlogPost = useCallback(
+    async (
+      postId: string,
+      updates: {
+        title: string;
+        category: BlogCategory;
+        excerpt: string;
+        content: string;
+        coverImageUrl: string;
+        authorName: string;
+        readTimeMin: number;
+        featured: boolean;
+        published: boolean;
+      },
+    ) => {
+      const activeUser = user ?? auth.currentUser;
+      if (!activeUser || !isAdmin) throw new Error('Studio owner sign-in is required to edit blog articles.');
+      const title = clampStr(updates.title, 120);
+      const excerpt = clampStr(updates.excerpt, 320);
+      const content = updates.content.trim().slice(0, 8000);
+      const coverImageUrl = updates.coverImageUrl.trim().slice(0, 350000);
+      if (title.length < 2) throw new Error('Blog title must be at least 2 characters.');
+      if (excerpt.length < 10) throw new Error('Summary / excerpt must be at least 10 characters.');
+      if (content.length < 20) throw new Error('Article body must be at least 20 characters.');
+
+      const cleanFields = {
+        title,
+        category: updates.category,
+        excerpt,
+        content,
+        coverImageUrl,
+        authorName: clampStr(updates.authorName || 'Eshin', 80),
+        readTimeMin: Math.min(60, Math.max(1, Math.round(Number(updates.readTimeMin) || 3))),
+        featured: Boolean(updates.featured),
+        published: Boolean(updates.published),
+        updatedAt: serverTimestamp(),
+      };
+
+      try {
+        const ref = doc(db, 'blogPosts', postId);
+        const existingSnap = await getDoc(ref);
+        if (existingSnap.exists()) {
+          await updateDoc(ref, cleanFields);
+        } else {
+          // Starter blog not yet written to Firestore: seed it cleanly along with any remaining starters
+          const batch = writeBatch(db);
+          batch.set(ref, {
+            ...cleanFields,
+            authorId: activeUser.uid,
+            createdAt: serverTimestamp(),
+          });
+          if (!remoteBlogs || remoteBlogs.length === 0) {
+            for (const seed of SEED_BLOGS) {
+              if (seed.id === postId) continue;
+              const { id, ...rest } = seed;
+              batch.set(doc(db, 'blogPosts', id), {
+                ...rest,
+                authorId: activeUser.uid,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+            }
+          }
+          await batch.commit();
+        }
+        setBlogsCleared(false);
+        try {
+          window.localStorage.removeItem('ltn_blogs_cleared_v1');
+        } catch {
+          // Ignore storage errors
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `blogPosts/${postId}`);
+      }
+    },
+    [user, isAdmin, remoteBlogs],
+  );
+
+  const adminDeleteBlogPost = useCallback(
+    async (postId: string) => {
+      const activeUser = user ?? auth.currentUser;
+      if (!activeUser || !isAdmin) throw new Error('Studio owner sign-in is required to delete blog articles.');
+      try {
+        if (!remoteBlogs || remoteBlogs.length === 0) {
+          const remaining = SEED_BLOGS.filter((b) => b.id !== postId);
+          if (remaining.length > 0) {
+            const batch = writeBatch(db);
+            for (const seed of remaining) {
+              const { id, ...rest } = seed;
+              batch.set(doc(db, 'blogPosts', id), {
+                ...rest,
+                authorId: activeUser.uid,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+            }
+            await batch.commit();
+            return;
+          }
+        }
+        const willBeEmpty = Boolean(remoteBlogs && remoteBlogs.length <= 1);
+        await deleteDoc(doc(db, 'blogPosts', postId));
+        if (willBeEmpty) {
+          setBlogsCleared(true);
+          try {
+            window.localStorage.setItem('ltn_blogs_cleared_v1', '1');
+          } catch {
+            // Ignore storage errors
+          }
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `blogPosts/${postId}`);
+      }
+    },
+    [user, isAdmin, remoteBlogs],
+  );
+
   const adminGrantLoyaltyStamp = useCallback(
     async (cardId: string, delta = 1) => {
       if (!isAdmin) throw new Error('Studio owner privileges required.');
@@ -1696,6 +1988,11 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     adminCreateGalleryPost,
     adminUpdateGalleryPost,
     adminDeleteGalleryPost,
+    blogPosts,
+    adminCreateBlogPost,
+    adminUpdateBlogPost,
+    adminDeleteBlogPost,
+    adminSeedStarterBlogs,
     adminGrantLoyaltyStamp,
     adminCreateOrStampByEmail,
     adminRedeemLoyaltyReward,

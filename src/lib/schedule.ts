@@ -105,11 +105,22 @@ export function getWeekdayTimeSlots(
   return sortTimeSlots(schedule.timeSlots);
 }
 
+export function getEffectiveWeekdaySlots(
+  schedule: StudioScheduleConfig,
+  dayOfWeek: number,
+): string[] {
+  if (!schedule.openWeekdays.includes(dayOfWeek)) {
+    return [];
+  }
+  return getWeekdayTimeSlots(schedule, dayOfWeek);
+}
+
 export interface DaySlotState {
   slot: string;
   isBlocked: boolean;
   isBooked: boolean;
   isExtra: boolean;
+  isPastTime: boolean;
   isAvailable: boolean;
 }
 
@@ -119,6 +130,7 @@ export interface DayScheduleInfo {
   dayStatus: 'default' | 'open' | 'closed';
   isWeeklyOpen: boolean;
   isClosed: boolean;
+  isPastDate: boolean;
   allSlots: string[];
   clientVisibleSlots: DaySlotState[];
   adminSlots: DaySlotState[];
@@ -131,6 +143,13 @@ export function getDayScheduleInfo(
   overridesByDate: Record<string, DayScheduleOverride>,
   bookedSlots: BookedSlot[],
 ): DayScheduleInfo {
+  const now = new Date();
+  const todayIso = formatIsoDate(now.getFullYear(), now.getMonth(), now.getDate());
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const isPastDate = dateIso < todayIso;
+  const isToday = dateIso === todayIso;
+
   const dayOfWeek = new Date(`${dateIso}T12:00:00`).getDay();
   const isWeeklyOpen = schedule.openWeekdays.includes(dayOfWeek);
   const override = overridesByDate[dateIso];
@@ -139,7 +158,7 @@ export function getDayScheduleInfo(
   const isClosed =
     dayStatus === 'closed' ? true : dayStatus === 'open' ? false : !isWeeklyOpen;
 
-  const weekdayBaseSlots = getWeekdayTimeSlots(schedule, dayOfWeek);
+  const weekdayBaseSlots = getEffectiveWeekdaySlots(schedule, dayOfWeek);
   const extraSet = new Set(override?.extraSlots ?? []);
   const blockedSet = new Set(override?.blockedSlots ?? []);
 
@@ -158,15 +177,20 @@ export function getDayScheduleInfo(
     const isBlocked = blockedSet.has(slot);
     const isBooked = activeBookedForDate.has(slot);
     const isExtra = extraSet.has(slot) && !weekdayBaseSlots.includes(slot);
-    const isAvailable = !isClosed && !isBlocked && !isBooked;
-    return { slot, isBlocked, isBooked, isExtra, isAvailable };
+    const slotMinutes = parseTimeSlotToMinutes(slot);
+    const isPastTime = isPastDate || (isToday && slotMinutes <= nowMinutes);
+    const isAvailable = !isClosed && !isPastTime && !isBlocked && !isBooked;
+    return { slot, isBlocked, isBooked, isExtra, isPastTime, isAvailable };
   });
 
-  // Clients see unblocked slots (including booked ones so they know it's taken)
-  const clientVisibleSlots = adminSlots.filter((s) => !s.isBlocked || s.isBooked);
-  const openCount = isClosed
-    ? 0
-    : adminSlots.filter((s) => !s.isBlocked && !s.isBooked).length;
+  // Clients see unblocked upcoming slots (or slots already booked for display)
+  const clientVisibleSlots = adminSlots.filter(
+    (s) => (!s.isBlocked && !s.isPastTime) || s.isBooked,
+  );
+  const openCount =
+    isClosed || isPastDate
+      ? 0
+      : adminSlots.filter((s) => s.isAvailable).length;
 
   return {
     date: dateIso,
@@ -174,6 +198,7 @@ export function getDayScheduleInfo(
     dayStatus,
     isWeeklyOpen,
     isClosed,
+    isPastDate,
     allSlots: combinedSlots,
     clientVisibleSlots,
     adminSlots,
@@ -187,7 +212,7 @@ export function getNextOpenDateIso(
   bookedSlots: BookedSlot[],
 ): string {
   const base = new Date();
-  for (let offset = 0; offset < 21; offset += 1) {
+  for (let offset = 0; offset < 45; offset += 1) {
     const d = new Date(base);
     d.setDate(base.getDate() + offset);
     const iso = formatIsoDate(d.getFullYear(), d.getMonth(), d.getDate());
