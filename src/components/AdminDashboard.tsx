@@ -667,7 +667,11 @@ export function AdminDashboard({
             <div className="space-y-1.5 min-w-0">
               <div className="inline-flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.16em] text-[#8A5A5C] font-medium break-all">
                 <ShieldCheck className="w-4 h-4 shrink-0" />
-                <span>Studio Owner Console · {user?.email}</span>
+                <span>
+                  {user?.email?.trim().toLowerCase() === STUDIO_EMAIL_SENDER
+                    ? `Studio Owner Console · ${user?.email} · Default Email Sender`
+                    : `Studio Owner Console · ${user?.email} · Default Email: ${STUDIO_EMAIL_SENDER}`}
+                </span>
               </div>
               <h1 className="font-['Playfair_Display'] text-2xl sm:text-4xl font-semibold text-[#141212]">
                 Love Those Nails — Admin
@@ -715,18 +719,18 @@ export function AdminDashboard({
                 type="button"
                 disabled={connectingGmail}
                 onClick={handleConnectGmail}
-                title={`Emails are sent from ${STUDIO_EMAIL_SENDER}`}
+                title={`Default email sender: ${STUDIO_EMAIL_SENDER}. Click to authorize Gmail sending for this browser session.`}
                 className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-medium cursor-pointer disabled:opacity-50 ${
-                  gmailConnected ? 'neu-btn text-[#16A34A]' : 'neu-btn-rose text-[#141212]'
+                  gmailConnected ? 'neu-btn text-[#16A34A]' : 'neu-btn text-[#141212]'
                 }`}
               >
-                <Mail className="w-3.5 h-3.5" />
+                <Mail className={`w-3.5 h-3.5 ${gmailConnected ? '' : 'text-[#8A5A5C]'}`} />
                 <span>
                   {connectingGmail
-                    ? 'Connecting Gmail...'
+                    ? `Authorizing ${STUDIO_EMAIL_SENDER}...`
                     : gmailConnected
-                      ? 'Gmail Ready'
-                      : 'Connect Studio Gmail'}
+                      ? `Email Ready: ${STUDIO_EMAIL_SENDER}`
+                      : `Default Email: ${STUDIO_EMAIL_SENDER}`}
                 </span>
               </button>
               {!catalogSynced && (
@@ -2132,13 +2136,30 @@ export function AdminDashboard({
                 {(!gmailConnected ||
                   user?.email?.trim().toLowerCase() !== STUDIO_EMAIL_SENDER) && (
                   <p className="text-[11px] text-[#554C4B] leading-relaxed">
-                    Sending via Gmail will request permission for{' '}
-                    <span className="font-mono font-medium text-[#141212]">
-                      {STUDIO_EMAIL_SENDER}
-                    </span>
-                    .{' '}
+                    {user?.email?.trim().toLowerCase() === STUDIO_EMAIL_SENDER ? (
+                      <>
+                        Your browser session reloaded — Google asks to confirm{' '}
+                        <span className="font-mono font-medium text-[#141212]">
+                          {STUDIO_EMAIL_SENDER}
+                        </span>{' '}
+                        once per session before sending via Gmail.
+                      </>
+                    ) : (
+                      <>
+                        Signed in as{' '}
+                        <span className="font-mono font-medium text-[#141212]">
+                          {user?.email}
+                        </span>
+                        . Google requires one-time permission from{' '}
+                        <span className="font-mono font-medium text-[#141212]">
+                          {STUDIO_EMAIL_SENDER}
+                        </span>{' '}
+                        to send from that inbox (or sign in as {STUDIO_EMAIL_SENDER} to authorize
+                        automatically).
+                      </>
+                    )}{' '}
                     {!isAlreadyConfirmed &&
-                      'You can also update the booking status immediately without sending an email.'}
+                      'You can also update the status immediately without sending an email.'}
                   </p>
                 )}
 

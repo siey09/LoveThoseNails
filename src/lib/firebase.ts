@@ -34,6 +34,14 @@ gmailSenderProvider.setCustomParameters({
   login_hint: STUDIO_EMAIL_SENDER,
 });
 
+export const gmailSameAccountProvider = new GoogleAuthProvider();
+for (const scope of GMAIL_SCOPES) {
+  gmailSameAccountProvider.addScope(scope);
+}
+gmailSameAccountProvider.setCustomParameters({
+  login_hint: STUDIO_EMAIL_SENDER,
+});
+
 export function isPrimaryAdminEmail(email?: string | null): boolean {
   if (!email) return false;
   const normalized = email.trim().toLowerCase();

@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import {
   GoogleAuthProvider,
   onAuthStateChanged,
+  reauthenticateWithPopup,
   signInWithPopup,
   signOut,
   type User,
@@ -25,6 +26,7 @@ import {
   auth,
   BOOTSTRAP_ADMIN_EMAIL,
   db,
+  gmailSameAccountProvider,
   gmailSenderProvider,
   googleProvider,
   handleFirestoreError,
@@ -959,7 +961,24 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   const connectAdminGmail = useCallback(async (): Promise<string> => {
     isGmailAuthInFlightRef.current = true;
     try {
-      const result = await signInWithPopup(auth, gmailSenderProvider);
+      const current = auth.currentUser;
+      const alreadyUsingSender =
+        Boolean(current?.emailVerified) &&
+        current?.email?.trim().toLowerCase() === STUDIO_EMAIL_SENDER;
+
+      let result = alreadyUsingSender && current
+        ? await reauthenticateWithPopup(current, gmailSameAccountProvider)
+        : await signInWithPopup(auth, gmailSenderProvider);
+
+      let credential = GoogleAuthProvider.credentialFromResult(result);
+      let token = credential?.accessToken ?? null;
+
+      if (!token && alreadyUsingSender) {
+        result = await signInWithPopup(auth, gmailSenderProvider);
+        credential = GoogleAuthProvider.credentialFromResult(result);
+        token = credential?.accessToken ?? null;
+      }
+
       const signedUser = result.user;
       if (!signedUser || !signedUser.emailVerified) {
         throw new Error(`Verified Google sign-in as ${STUDIO_EMAIL_SENDER} is required to send emails.`);
@@ -971,8 +990,6 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
           `Studio emails must be sent from ${STUDIO_EMAIL_SENDER}. Signed in as ${signedUser.email || 'another account'} instead — please select ${STUDIO_EMAIL_SENDER} in the Google prompt.`,
         );
       }
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const token = credential?.accessToken ?? null;
       if (!token) {
         throw new Error(
           'Gmail send permission was not granted. Please allow the "Send email on your behalf" permission when signing in.',
