@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStudio } from '../context/StudioContext';
 import { NAIL_SHAPES } from '../data/seedCatalog';
 import { getDayScheduleInfo, getNextOpenDateIso, getTodayIso } from '../lib/schedule';
-import { BOOTSTRAP_ADMIN_EMAIL } from '../lib/firebase';
+import { isPrimaryAdminEmail } from '../lib/firebase';
 import type {
   Appointment,
   ArtistItem,
@@ -139,7 +139,7 @@ export function BookingModal({
 
       const currentIsAdmin = Boolean(
         currentUser.emailVerified &&
-          (currentUser.email === BOOTSTRAP_ADMIN_EMAIL || isAdmin),
+          (isPrimaryAdminEmail(currentUser.email) || isAdmin),
       );
 
       if (!catalogSynced && !currentIsAdmin) {

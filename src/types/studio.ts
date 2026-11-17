@@ -251,3 +251,10 @@ export interface BlogPost {
   updatedAt?: unknown;
 }
 
+export interface AdminInvite {
+  id: string;
+  email: string;
+  addedBy: string;
+  addedByEmail: string;
+  grantedAt?: unknown;
+}

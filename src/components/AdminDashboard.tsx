@@ -22,11 +22,13 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  UserPlus,
   X,
 } from 'lucide-react';
 import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { useStudio } from '../context/StudioContext';
 import { NAIL_SHAPES } from '../data/seedCatalog';
+import { PRIMARY_ADMIN_EMAILS } from '../lib/firebase';
 import { buildBookingEmailPreview } from '../lib/gmail';
 import { AdminBlogsPanel } from './AdminBlogsPanel';
 import { AdminCalendar } from './AdminCalendar';
@@ -161,6 +163,9 @@ export function AdminDashboard({
     adminCreateOrStampByEmail,
     adminRedeemLoyaltyReward,
     seedCatalogToFirestore,
+    adminInvites,
+    adminAddAdminEmail,
+    adminRemoveAdminInvite,
   } = useStudio();
 
   const [activeTab, setActiveTab] = useState<AdminTab>('appointments');
@@ -223,6 +228,12 @@ export function AdminDashboard({
   const [galProcessingImg, setGalProcessingImg] = useState(false);
   const [galSaving, setGalSaving] = useState(false);
   const [galError, setGalError] = useState<string | null>(null);
+
+  const [adminManagerOpen, setAdminManagerOpen] = useState(false);
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [addingAdmin, setAddingAdmin] = useState(false);
+  const [removingAdminEmail, setRemovingAdminEmail] = useState<string | null>(null);
+  const [adminManagerError, setAdminManagerError] = useState<string | null>(null);
 
   if (!isAdmin) {
     return (
@@ -726,6 +737,17 @@ export function AdminDashboard({
                   <span>{syncingCatalog ? 'Syncing Catalog...' : 'Sync Default Catalog'}</span>
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminManagerError(null);
+                  setAdminManagerOpen(true);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 neu-btn text-xs font-medium text-[#141212] cursor-pointer"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-[#8A5A5C]" />
+                <span>Admins ({PRIMARY_ADMIN_EMAILS.length + adminInvites.length})</span>
+              </button>
               <button
                 type="button"
                 onClick={onBackToStudio}
@@ -2170,6 +2192,171 @@ export function AdminDashboard({
             </div>
           );
         })()}
+
+      {/* Manage Studio Admins Modal */}
+      {adminManagerOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-[#141212]/45 backdrop-blur-[2px] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Manage Studio Admins"
+        >
+          <div className="w-full max-w-lg neu-surface max-h-[90vh] overflow-y-auto p-6 sm:p-8 space-y-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#8A5A5C] font-medium">
+                  Team &amp; Permissions
+                </p>
+                <h2 className="font-['Playfair_Display'] text-2xl font-semibold text-[#141212] mt-1">
+                  Studio Admins
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdminManagerOpen(false)}
+                aria-label="Close studio admins modal"
+                className="p-2.5 neu-btn text-[#141212] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="neu-divider" />
+
+            <form
+              onSubmit={async (e: FormEvent) => {
+                e.preventDefault();
+                if (addingAdmin) return;
+                setAddingAdmin(true);
+                setAdminManagerError(null);
+                try {
+                  const target = newAdminEmail.trim().toLowerCase();
+                  await adminAddAdminEmail(target);
+                  setNewAdminEmail('');
+                  flashNotice(`Added ${target} as Studio Admin.`);
+                } catch (err) {
+                  setAdminManagerError(
+                    err instanceof Error ? err.message : 'Unable to add admin email.',
+                  );
+                } finally {
+                  setAddingAdmin(false);
+                }
+              }}
+              className="neu-inset p-4 space-y-3"
+            >
+              <label className="block text-xs font-semibold text-[#141212]">
+                Add Admin Google Email
+                <div className="mt-2 flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="email"
+                    required
+                    maxLength={160}
+                    value={newAdminEmail}
+                    onChange={(e) => setNewAdminEmail(e.target.value)}
+                    placeholder="name@gmail.com"
+                    className="flex-1 neu-input px-3.5 py-2.5 text-xs sm:text-sm text-[#141212] focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={addingAdmin}
+                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 neu-btn-ink text-xs font-medium cursor-pointer disabled:opacity-50 shrink-0"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>{addingAdmin ? 'Adding...' : 'Add Admin'}</span>
+                  </button>
+                </div>
+              </label>
+              <p className="text-[11px] text-[#554C4B] leading-relaxed">
+                Added Google accounts can sign in at Admin Portal to manage bookings, calendar
+                slots, gallery sets, blogs, and loyalty cards.
+              </p>
+              {adminManagerError && (
+                <p className="text-xs font-medium text-[#8E353B]">{adminManagerError}</p>
+              )}
+            </form>
+
+            <div className="space-y-2.5">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#554C4B]">
+                Primary Owner Accounts
+              </p>
+              {PRIMARY_ADMIN_EMAILS.map((email) => (
+                <div
+                  key={email}
+                  className="neu-surface-sm px-4 py-3 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-mono text-xs sm:text-sm font-medium text-[#141212] truncate">
+                      {email}
+                    </p>
+                    <p className="text-[11px] text-[#8A5A5C]">Primary Studio Admin</p>
+                  </div>
+                  <span className="text-[11px] font-medium px-2.5 py-1 neu-inset rounded-lg text-[#554C4B] shrink-0">
+                    Active
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {adminInvites.length > 0 && (
+              <div className="space-y-2.5">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#554C4B]">
+                  Additional Invited Admins ({adminInvites.length})
+                </p>
+                {adminInvites.map((invite) => {
+                  const isCurrentUser =
+                    user?.email?.trim().toLowerCase() === invite.email.toLowerCase();
+                  const busy = removingAdminEmail === invite.email;
+                  return (
+                    <div
+                      key={invite.id}
+                      className="neu-surface-sm px-4 py-3 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs sm:text-sm font-medium text-[#141212] truncate">
+                          {invite.email}
+                        </p>
+                        <p className="text-[11px] text-[#554C4B] truncate">
+                          Added by {invite.addedByEmail}
+                        </p>
+                      </div>
+                      {isCurrentUser ? (
+                        <span className="text-[11px] font-medium px-2.5 py-1 neu-inset rounded-lg text-[#554C4B] shrink-0">
+                          You
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={async () => {
+                            setRemovingAdminEmail(invite.email);
+                            setAdminManagerError(null);
+                            try {
+                              await adminRemoveAdminInvite(invite.email);
+                              flashNotice(`Removed admin access for ${invite.email}.`);
+                            } catch (err) {
+                              setAdminManagerError(
+                                err instanceof Error
+                                  ? err.message
+                                  : 'Unable to remove admin access.',
+                              );
+                            } finally {
+                              setRemovingAdminEmail(null);
+                            }
+                          }}
+                          className="p-2 neu-btn text-[#8E353B] cursor-pointer disabled:opacity-50 shrink-0"
+                          aria-label={`Remove ${invite.email}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

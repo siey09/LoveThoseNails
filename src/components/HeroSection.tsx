@@ -26,13 +26,29 @@ export function HeroSection({ onOpenBooking, onExploreServices }: HeroSectionPro
               By Eshin · Private Nail Atelier
             </p>
 
-            <h1 className="font-['Playfair_Display'] text-3xl sm:text-5xl lg:text-[3.85rem] leading-[1.1] sm:leading-[1.08] font-semibold text-[#141212] max-w-2xl">
-              Bespoke nail artistry, sculpted with care
+            <h1 className="font-['Playfair_Display'] text-4xl sm:text-5xl lg:text-[4.15rem] leading-[1.06] font-semibold text-[#141212] tracking-[-0.02em] max-w-2xl">
+              <span className="block">
+                Love Those{' '}
+                <span className="relative inline-block">
+                  <span className="relative z-10">Nails</span>
+                  <span
+                    aria-hidden="true"
+                    className="absolute -left-1 -right-1 bottom-1 sm:bottom-1.5 h-2.5 sm:h-3.5 bg-[#D2AAAB]/60 rounded-sm"
+                  />
+                </span>
+              </span>
+              <span className="mt-1.5 sm:mt-2.5 flex items-center gap-3 sm:gap-4 text-[0.54em] font-medium italic text-[#8A5A5C] tracking-[0.02em]">
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-8 sm:w-12 h-[1.5px] bg-[#C29697] rounded-full shrink-0"
+                />
+                <span>by Eshin</span>
+              </span>
             </h1>
 
             <p className="text-sm sm:text-base text-[#554C4B] leading-relaxed max-w-[52ch]">
-              Soft Gel-X extensions, translucent Korean syrup BIAB, and meticulous cuticle care
-              in a calm, appointment-only studio.
+              Thoughtful prep, signature sets, and everyday luxury — crafted so you always love
+              those nails.
             </p>
 
             <div className="flex flex-wrap items-center gap-3 sm:gap-5 pt-2">

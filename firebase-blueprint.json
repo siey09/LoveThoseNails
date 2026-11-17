@@ -468,6 +468,34 @@
       },
       "required": ["uid", "email", "grantedAt"]
     },
+    "AdminInvite": {
+      "title": "AdminInvite",
+      "description": "Email-based studio administrator allowlist invite managed by existing admins.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160,
+          "pattern": "^[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}$"
+        },
+        "addedBy": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "addedByEmail": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "grantedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "addedBy", "addedByEmail", "grantedAt"]
+    },
     "EmailLog": {
       "title": "EmailLog",
       "description": "Server-managed email notification and reminder tracking record for an appointment.",
@@ -843,6 +871,10 @@
     "/admins/{adminUid}": {
       "schema": { "$ref": "#/entities/AdminRecord" },
       "description": "Studio administrator allowlist."
+    },
+    "/adminInvites/{inviteEmail}": {
+      "schema": { "$ref": "#/entities/AdminInvite" },
+      "description": "Email-based studio administrator allowlist invites managed strictly by admins."
     },
     "/emailLogs/{appointmentId}": {
       "schema": { "$ref": "#/entities/EmailLog" },

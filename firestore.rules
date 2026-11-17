@@ -32,9 +32,22 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isValidEmailDocId(id) {
+      return id is string
+        && id.size() >= 3
+        && id.size() <= 160
+        && id.matches('^[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}$');
+    }
+
     function isAdmin() {
       return isVerifiedUser() && (
-        request.auth.token.email == 'sieyiphone07@gmail.com' ||
+        (
+          request.auth.token.email is string && (
+            request.auth.token.email.lower() == 'sieyiphone07@gmail.com' ||
+            request.auth.token.email.lower() == 'lovethosenailsbyeshin@gmail.com' ||
+            exists(/databases/$(database)/documents/adminInvites/$(request.auth.token.email.lower()))
+          )
+        ) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -181,6 +194,15 @@ service cloud.firestore {
         && data.keys().hasOnly(['uid', 'email', 'grantedAt'])
         && isValidId(data.uid)
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.grantedAt is timestamp && data.grantedAt == request.time;
+    }
+
+    function isValidAdminInvite(data) {
+      return data.keys().hasAll(['email', 'addedBy', 'addedByEmail', 'grantedAt'])
+        && data.keys().hasOnly(['email', 'addedBy', 'addedByEmail', 'grantedAt'])
+        && isValidEmailDocId(data.email)
+        && isValidId(data.addedBy)
+        && data.addedByEmail is string && data.addedByEmail.size() >= 3 && data.addedByEmail.size() <= 160
         && data.grantedAt is timestamp && data.grantedAt == request.time;
     }
 
@@ -503,6 +525,26 @@ service cloud.firestore {
       allow create: if isAdmin() && isValidId(adminUid) && isValidAdminRecord(incoming()) && incoming().uid == adminUid;
       allow update: if false;
       allow delete: if isAdmin() && isValidId(adminUid);
+    }
+
+    // Admin email allowlist invites (managed by admins; verified user may check own email)
+    match /adminInvites/{inviteEmail} {
+      allow get: if isValidEmailDocId(inviteEmail) && (
+        isAdmin() ||
+        (
+          isVerifiedUser() &&
+          request.auth.token.email is string &&
+          request.auth.token.email.lower() == inviteEmail
+        )
+      );
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && isValidEmailDocId(inviteEmail)
+        && isValidAdminInvite(incoming())
+        && incoming().email == inviteEmail
+        && incoming().addedBy == request.auth.uid;
+      allow update: if false;
+      allow delete: if isAdmin() && isValidEmailDocId(inviteEmail);
     }
 
     // Email confirmation & reminder logs (admin-writable via Gmail integration or server-managed)

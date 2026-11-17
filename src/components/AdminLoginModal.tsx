@@ -1,7 +1,12 @@
 import { Lock, LogOut, ShieldCheck, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
 import { useStudio } from '../context/StudioContext';
-import { BOOTSTRAP_ADMIN_EMAIL } from '../lib/firebase';
+import {
+  db,
+  isPrimaryAdminEmail,
+  PRIMARY_ADMIN_EMAILS,
+} from '../lib/firebase';
 import { BrandCrestImage } from './NailArtVisuals';
 
 interface AdminLoginModalProps {
@@ -39,16 +44,31 @@ export function AdminLoginModal({
         setLoading(false);
         return;
       }
-      const isBootstrapAdmin =
-        Boolean(signedUser.emailVerified) &&
-        signedUser.email?.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
+      let authorizedAdmin =
+        Boolean(signedUser.emailVerified) && isPrimaryAdminEmail(signedUser.email);
 
-      if (isBootstrapAdmin) {
+      if (!authorizedAdmin && signedUser.emailVerified) {
+        try {
+          const adminSnap = await getDoc(doc(db, 'admins', signedUser.uid));
+          if (adminSnap.exists()) {
+            authorizedAdmin = true;
+          } else if (signedUser.email) {
+            const inviteSnap = await getDoc(
+              doc(db, 'adminInvites', signedUser.email.trim().toLowerCase()),
+            );
+            authorizedAdmin = inviteSnap.exists();
+          }
+        } catch {
+          authorizedAdmin = false;
+        }
+      }
+
+      if (authorizedAdmin) {
         onClose();
         onAuthenticatedAdmin();
       } else {
         setErrorMsg(
-          `Signed in as ${signedUser.email || 'another account'}. Studio Admin access is reserved for ${BOOTSTRAP_ADMIN_EMAIL}.`,
+          `Signed in as ${signedUser.email || 'another account'}. Studio Admin access is reserved for authorized studio owner accounts.`,
         );
       }
     } catch (err) {
@@ -96,12 +116,17 @@ export function AdminLoginModal({
         <div className="neu-inset p-4 space-y-2 text-xs text-[#554C4B] leading-relaxed">
           <div className="flex items-center gap-2 text-[#141212] font-medium">
             <ShieldCheck className="w-4 h-4 text-[#8A5A5C]" />
-            <span>Authorized Admin Account</span>
+            <span>Authorized Admin Accounts</span>
           </div>
-          <p className="font-mono text-[#141212]">{BOOTSTRAP_ADMIN_EMAIL}</p>
+          <div className="space-y-0.5 font-mono text-[11px] text-[#141212]">
+            {PRIMARY_ADMIN_EMAILS.map((email) => (
+              <p key={email}>{email}</p>
+            ))}
+          </div>
           <p>
-            Sign in with Google using the studio owner email above to manage appointments,
-            send Gmail booking confirmations, post works to the gallery, and manage loyalty cards.
+            Sign in with Google using an authorized or invited studio admin account to manage
+            appointments, send Gmail confirmations, publish blogs/gallery sets, and edit
+            schedules.
           </p>
         </div>
 

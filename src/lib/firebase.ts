@@ -19,6 +19,16 @@ for (const scope of GMAIL_SCOPES) {
 adminGoogleProvider.setCustomParameters({ prompt: 'select_account consent' });
 
 export const BOOTSTRAP_ADMIN_EMAIL = 'sieyiphone07@gmail.com';
+export const PRIMARY_ADMIN_EMAILS = [
+  'sieyiphone07@gmail.com',
+  'lovethosenailsbyeshin@gmail.com',
+] as const;
+
+export function isPrimaryAdminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  const normalized = email.trim().toLowerCase();
+  return PRIMARY_ADMIN_EMAILS.some((adminEmail) => adminEmail === normalized);
+}
 
 export enum OperationType {
   CREATE = 'create',

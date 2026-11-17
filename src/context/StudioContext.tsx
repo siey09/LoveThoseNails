@@ -27,6 +27,7 @@ import {
   db,
   googleProvider,
   handleFirestoreError,
+  isPrimaryAdminEmail,
   OperationType,
 } from '../lib/firebase';
 import {
@@ -37,6 +38,7 @@ import {
 import { SEED_ARTISTS, SEED_BLOGS, SEED_RETAIL, SEED_SERVICES } from '../data/seedCatalog';
 import { DEFAULT_STUDIO_SCHEDULE, sortTimeSlots } from '../lib/schedule';
 import type {
+  AdminInvite,
   Appointment,
   AppointmentStatus,
   ArtistItem,
@@ -217,6 +219,9 @@ interface StudioContextValue {
   }) => Promise<{ created: boolean; cardCode: string; stamps: number; clientEmail: string }>;
   adminRedeemLoyaltyReward: (cardId: string) => Promise<void>;
   seedCatalogToFirestore: () => Promise<void>;
+  adminInvites: AdminInvite[];
+  adminAddAdminEmail: (email: string) => Promise<void>;
+  adminRemoveAdminInvite: (inviteEmail: string) => Promise<void>;
 }
 
 const StudioContext = createContext<StudioContextValue | null>(null);
@@ -245,6 +250,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [isAdminRecord, setIsAdminRecord] = useState(false);
+  const [adminInvites, setAdminInvites] = useState<AdminInvite[]>([]);
   const [gmailConnected, setGmailConnected] = useState(Boolean(cachedGmailAccessToken));
 
   const [remoteServices, setRemoteServices] = useState<ServiceItem[] | null>(null);
@@ -294,9 +300,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
 
   const isAdmin = useMemo(() => {
     if (!user || !user.emailVerified) return false;
-    return (
-      user.email?.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase() || isAdminRecord
-    );
+    return isPrimaryAdminEmail(user.email) || isAdminRecord;
   }, [user, isAdminRecord]);
 
   // Listen to Firebase Auth state
@@ -308,8 +312,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
         setGmailConnected(false);
       }
       const isBootstrapEmail =
-        Boolean(nextUser?.emailVerified) &&
-        nextUser?.email?.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
+        Boolean(nextUser?.emailVerified) && isPrimaryAdminEmail(nextUser?.email);
 
       if (nextUser && nextUser.emailVerified && isBootstrapEmail) {
         setIsAdminRecord(true);
@@ -324,12 +327,21 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
             });
           }
         } catch {
-          // Bootstrap email rule already grants admin privileges even before doc write
+          // Primary email rule already grants admin privileges even before doc write
         }
       } else if (nextUser && nextUser.emailVerified) {
         try {
           const adminSnap = await getDoc(doc(db, 'admins', nextUser.uid));
-          setIsAdminRecord(adminSnap.exists());
+          if (adminSnap.exists()) {
+            setIsAdminRecord(true);
+          } else if (nextUser.email) {
+            const inviteSnap = await getDoc(
+              doc(db, 'adminInvites', nextUser.email.trim().toLowerCase()),
+            );
+            setIsAdminRecord(inviteSnap.exists());
+          } else {
+            setIsAdminRecord(false);
+          }
         } catch {
           setIsAdminRecord(false);
         }
@@ -785,6 +797,25 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
       setAllLoyaltyCards([]);
     }
 
+    let unsubAdminInvites = () => {};
+    if (isAdmin) {
+      unsubAdminInvites = onSnapshot(
+        query(collection(db, 'adminInvites'), orderBy('grantedAt', 'desc')),
+        (snap) => {
+          const list = snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as Omit<AdminInvite, 'id'>),
+          }));
+          setAdminInvites(list);
+        },
+        (err) => {
+          handleFirestoreError(err, OperationType.LIST, 'adminInvites');
+        },
+      );
+    } else {
+      setAdminInvites([]);
+    }
+
     return () => {
       unsubProfile();
       unsubAppts();
@@ -793,6 +824,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
       unsubEmailLogs();
       unsubLoyalty();
       unsubAllLoyalty();
+      unsubAdminInvites();
     };
   }, [authReady, user, isAdmin]);
 
@@ -874,13 +906,19 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const token = credential?.accessToken ?? null;
       const isBootstrapEmail =
-        Boolean(result.user?.emailVerified) &&
-        result.user?.email?.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
+        Boolean(result.user?.emailVerified) && isPrimaryAdminEmail(result.user?.email);
       let authorizedAdmin = isBootstrapEmail;
       if (!authorizedAdmin && result.user?.emailVerified) {
         try {
           const snap = await getDoc(doc(db, 'admins', result.user.uid));
-          authorizedAdmin = snap.exists();
+          if (snap.exists()) {
+            authorizedAdmin = true;
+          } else if (result.user.email) {
+            const inviteSnap = await getDoc(
+              doc(db, 'adminInvites', result.user.email.trim().toLowerCase()),
+            );
+            authorizedAdmin = inviteSnap.exists();
+          }
         } catch {
           authorizedAdmin = false;
         }
@@ -915,20 +953,26 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     if (!signedUser || !signedUser.emailVerified) {
       throw new Error('Verified Google admin sign-in is required to connect Gmail.');
     }
-    const isBootstrapEmail =
-      signedUser.email?.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
+    const isBootstrapEmail = isPrimaryAdminEmail(signedUser.email);
     let authorizedAdmin = isBootstrapEmail;
     if (!authorizedAdmin) {
       try {
         const snap = await getDoc(doc(db, 'admins', signedUser.uid));
-        authorizedAdmin = snap.exists();
+        if (snap.exists()) {
+          authorizedAdmin = true;
+        } else if (signedUser.email) {
+          const inviteSnap = await getDoc(
+            doc(db, 'adminInvites', signedUser.email.trim().toLowerCase()),
+          );
+          authorizedAdmin = inviteSnap.exists();
+        }
       } catch {
         authorizedAdmin = false;
       }
     }
     if (!authorizedAdmin) {
       throw new Error(
-        `Please sign in with the authorized studio admin account (${BOOTSTRAP_ADMIN_EMAIL}) to send emails.`,
+        'Please sign in with an authorized studio admin Google account to send emails.',
       );
     }
     if (!cachedGmailAccessToken) {
@@ -976,7 +1020,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
       if (!activeUser) throw new Error('Please sign in with Google to confirm your appointment.');
       const activeIsAdmin = Boolean(
         activeUser.emailVerified &&
-          (activeUser.email === BOOTSTRAP_ADMIN_EMAIL || isAdmin),
+          (isPrimaryAdminEmail(activeUser.email) || isAdmin),
       );
       // Ensure services and artists exist in Firestore when booking if catalog isn't seeded yet and user is admin
       const appointmentId = generateId('appt');
@@ -1935,6 +1979,53 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     [isAdmin, dayOverrides],
   );
 
+  const adminAddAdminEmail = useCallback(
+    async (rawEmail: string) => {
+      if (!isAdmin || !user) throw new Error('Studio owner privileges required.');
+      const normalized = clampStr(rawEmail.toLowerCase(), 160);
+      if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(normalized)) {
+        throw new Error('Please enter a valid Gmail or email address.');
+      }
+      if (isPrimaryAdminEmail(normalized)) {
+        throw new Error(`${normalized} is already a primary Studio Admin.`);
+      }
+      if (adminInvites.some((a) => a.email.toLowerCase() === normalized)) {
+        throw new Error(`${normalized} is already an authorized Studio Admin.`);
+      }
+      const ref = doc(db, 'adminInvites', normalized);
+      try {
+        await setDoc(ref, {
+          email: normalized,
+          addedBy: user.uid,
+          addedByEmail: clampStr(user.email || BOOTSTRAP_ADMIN_EMAIL, 160),
+          grantedAt: serverTimestamp(),
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `adminInvites/${normalized}`);
+      }
+    },
+    [isAdmin, user, adminInvites],
+  );
+
+  const adminRemoveAdminInvite = useCallback(
+    async (inviteEmail: string) => {
+      if (!isAdmin || !user) throw new Error('Studio owner privileges required.');
+      const normalized = clampStr(inviteEmail.toLowerCase(), 160);
+      if (isPrimaryAdminEmail(normalized)) {
+        throw new Error('Primary studio owner accounts cannot be removed.');
+      }
+      if (user.email?.trim().toLowerCase() === normalized) {
+        throw new Error('You cannot remove your own currently signed-in admin access.');
+      }
+      try {
+        await deleteDoc(doc(db, 'adminInvites', normalized));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `adminInvites/${normalized}`);
+      }
+    },
+    [isAdmin, user],
+  );
+
   const value: StudioContextValue = {
     user,
     authReady,
@@ -1997,6 +2088,9 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     adminCreateOrStampByEmail,
     adminRedeemLoyaltyReward,
     seedCatalogToFirestore,
+    adminInvites,
+    adminAddAdminEmail,
+    adminRemoveAdminInvite,
   };
 
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;
